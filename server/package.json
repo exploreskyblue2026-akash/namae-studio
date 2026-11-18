@@ -1,0 +1,16 @@
+{
+  "name": "namae-studio",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Namae Studio: brand-name exploration tool (backend + frontend).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

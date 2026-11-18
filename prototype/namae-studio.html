@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Namae Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --azure:#006EFF; --pink:#FF3EA5; --pink-soft:#FFB3D9; --yellow:#FFD84D; --green:#1F9D55; --red:#B00020;
+  --ink:#0A0A0A; --muted:#4A5568;
+  --paper:rgba(255,255,255,.78); --edge:rgba(0,110,255,.18);
+  --shadow:0 1px 0 #fff inset, 0 10px 28px rgba(0,60,160,.09), 0 2px 6px rgba(0,60,160,.05);
+  --shadow-hi:0 1px 0 #fff inset, 0 18px 40px rgba(0,60,160,.16), 0 4px 10px rgba(0,60,160,.07);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Archivo,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:radial-gradient(circle at 15% 0%,#ffffff 0,#E8F1FF 42%,#D3E5FF 100%);min-height:100vh}
+button,input,select,textarea{font:inherit;color:inherit}
+.app{max-width:1320px;margin:0 auto;padding:20px 22px 40px}
+.card{background:var(--paper);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--edge);border-radius:22px;box-shadow:var(--shadow);transition:transform .25s ease, box-shadow .25s ease}
+.lift{transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease}
+.lift:hover{transform:translateY(-3px);box-shadow:var(--shadow-hi)}
+.lift:active{transform:translateY(0) scale(.99)}
+:focus-visible{outline:3px solid var(--yellow);outline-offset:3px}
+
+/* top bar */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px}
+.brand{display:flex;align-items:center;gap:14px;min-width:0}
+.logo{width:58px;height:58px;flex:none;background:var(--azure);color:#fff;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900;font-size:13px;line-height:.9;text-transform:uppercase}
+.title{font-weight:900;font-size:20px;color:var(--azure);font-stretch:125%;letter-spacing:.01em}
+.projname{font-size:13px;color:var(--muted);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tools{display:flex;align-items:center;gap:10px}
+.icon{width:46px;height:46px;border-radius:50%;border:1px solid var(--edge);background:#fff;display:grid;place-items:center;cursor:pointer;transition:transform .15s, background .15s}
+.icon:hover{transform:translateY(-2px);background:#F2F7FF}
+.icon:active{transform:scale(.94)}
+.icon.on{background:var(--azure);border-color:var(--azure)}
+.icon svg{width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.icon.on svg{stroke:#fff}
+.icon.plus{background:var(--azure);border-color:var(--azure)}
+.icon.plus svg{stroke:#fff}
+.avatar{width:46px;height:46px;border-radius:50%;background:var(--pink);color:#fff;display:grid;place-items:center;font-weight:900;border:0;cursor:pointer;transition:transform .15s, box-shadow .15s}
+.avatar:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(0,40,120,.2)}
+.avatar.on{box-shadow:0 0 0 3px var(--yellow)}
+
+/* buttons */
+.btn{border:0;border-radius:999px;padding:12px 22px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;min-height:44px;transition:transform .15s ease, box-shadow .15s ease, background .15s ease}
+.btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 18px rgba(0,40,120,.18)}
+.btn:active:not(:disabled){transform:translateY(1px) scale(.98);box-shadow:none}
+.btn.black{background:#000;color:#fff}
+.btn.azure{background:var(--azure);color:#fff}
+.btn.pink{background:var(--pink);color:#fff}
+.btn.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--ink)}
+.btn.danger{background:#fff;color:var(--red);border:1.5px solid var(--red)}
+.btn.sm{padding:8px 14px;min-height:36px;font-size:12px}
+.btn.link{background:transparent;color:var(--muted);padding:8px 10px;text-decoration:underline;text-transform:none;letter-spacing:0;font-weight:600}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* tabs */
+.tabs{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;border:1px dashed rgba(0,110,255,.5);border-radius:999px;background:rgba(255,255,255,.6)}
+.tab{display:flex;align-items:center;gap:10px;padding:6px 18px 6px 6px;border-radius:999px;border:1.5px solid #000;background:transparent;cursor:pointer;font-weight:800;font-size:13px;letter-spacing:.05em;text-transform:uppercase;transition:transform .15s ease, background .2s ease}
+.tab:hover:not(:disabled){transform:translateY(-2px)}
+.tab:disabled{opacity:.4;cursor:not-allowed}
+.tab .n{width:28px;height:28px;border-radius:50%;border:1.5px solid #000;display:grid;place-items:center;background:#fff;font-weight:900}
+.tab.current{background:var(--azure);border-color:var(--azure);color:#fff}
+.tab.current .n{background:#fff;color:var(--azure);border-color:#fff}
+.tab.done{background:var(--pink-soft);border-color:var(--pink)}
+.tab.done .n{background:var(--pink);color:#fff;border-color:var(--pink)}
+
+/* layout */
+.body{display:grid;grid-template-columns:1fr 300px;gap:18px;margin-top:18px;align-items:start}
+.main{padding:30px 32px;min-height:620px;display:flex;flex-direction:column}
+.display{margin:0;color:var(--azure);font-weight:900;font-stretch:125%;text-transform:uppercase;font-size:clamp(26px,3.2vw,40px);line-height:1.04}
+.sub{margin:10px 0 0;font-size:15px;color:var(--ink)}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.sect{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;margin:28px 0 10px;display:flex;align-items:center;gap:10px}
+.sect::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--c,var(--azure))}
+.help{font-size:13px;color:var(--muted);margin:6px 0 0;line-height:1.45}
+.field{margin-top:18px;width:100%;min-height:150px;resize:vertical;padding:16px 18px;border:1.5px solid rgba(0,110,255,.3);border-radius:18px;background:rgba(255,255,255,.92);font-size:16px;line-height:1.5}
+.field:focus,.input:focus,.select:focus{outline:none;border-color:var(--azure);box-shadow:0 0 0 4px rgba(0,110,255,.15)}
+.input,.select{padding:11px 14px;border-radius:14px;border:1.5px solid rgba(0,110,255,.3);background:#fff;min-width:0;width:100%}
+.footbar{margin-top:auto;padding-top:24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hint{font-weight:700;font-size:14px}
+.microw{display:flex;align-items:center;gap:12px;margin-top:12px}
+.mic{width:52px;height:52px;border-radius:50%;border:0;background:var(--pink);cursor:pointer;display:grid;place-items:center;box-shadow:0 0 0 5px rgba(255,62,165,.18)}
+.mic svg{width:22px;height:22px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round}
+.mic.on{animation:pulse 1.2s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,62,165,.55)}100%{box-shadow:0 0 0 20px rgba(255,62,165,0)}}
+.restate{margin-top:14px;background:#fff;border:1.5px solid var(--azure);border-radius:18px;padding:16px 18px}
+.restate p{margin:6px 0 0;font-size:15px;line-height:1.5}
+
+/* options */
+.opts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px}
+.opt{text-align:left;border:1.5px solid var(--edge);border-radius:16px;background:#fff;padding:14px 16px;cursor:pointer;display:flex;flex-direction:column;gap:6px;box-shadow:var(--shadow)}
+.opt b{font-size:15px;font-weight:900;text-transform:uppercase}
+.opt span{font-size:12px;color:var(--muted);line-height:1.4}
+.opt.on{border-color:var(--azure);background:#EAF3FF;box-shadow:0 0 0 3px rgba(0,110,255,.18)}
+.opts.cls{grid-template-columns:repeat(3,1fr)}
+.opt.cls.on{border-color:var(--pink);background:#FFF0F8;box-shadow:0 0 0 3px rgba(255,62,165,.18)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.chip{border:1.5px solid var(--azure);background:#fff;border-radius:999px;padding:7px 14px;font-weight:800;font-size:13px;cursor:pointer;transition:transform .15s}
+.chip:hover{transform:translateY(-2px)}
+.chip.on{background:var(--azure);color:#fff}
+.chip.pinkon{border-color:var(--pink)}
+.chip.pinkon.on{background:var(--pink)}
+.refrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.refrow .input{flex:1;min-width:200px}
+.ref{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--edge);border-radius:999px;padding:6px 6px 6px 14px;font-weight:700;font-size:13px}
+.ref button{border:0;border-radius:999px;padding:4px 10px;font-weight:800;font-size:11px;cursor:pointer;text-transform:uppercase}
+.ref .like{background:#DDF6E7;color:#0E6B3A}
+.ref .avoid{background:#FFD9E0;color:var(--red)}
+.ref .x{background:#EEF2F7;color:var(--muted)}
+
+/* directions grid */
+.dgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px}
+.dcard{text-align:left;border:1.5px solid var(--edge);border-radius:18px;background:#fff;padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:6px;min-height:118px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+.dcard::before{content:"";position:absolute;left:0;top:0;right:0;height:5px;background:var(--c)}
+.dcard.on{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 30%,transparent)}
+.dcard:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.dname{font-size:16px;font-weight:900;font-stretch:112%;text-transform:uppercase}
+.ddesc{font-size:13px;line-height:1.4;color:var(--muted)}
+.dtag{font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.dcard.on .dtag{color:var(--ink)}
+
+/* pills */
+.pill{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:#F0F5FF;color:var(--muted);white-space:nowrap;display:inline-block}
+.pill.suggested{background:#F0F5FF;color:var(--muted)}
+.pill.rejected{background:#111;color:#fff}
+.pill.kept{background:#E3EEFF;color:var(--azure)}
+.pill.shortlisted{background:var(--pink);color:#fff}
+.pill.locked{background:var(--green);color:#fff}
+.pill.Clear,.pill.Go{background:#DDF6E7;color:#0E6B3A}
+.pill.Review,.pill.Caution{background:#FFF3B0;color:#6B5200}
+.pill.Blocked,.pill.Stop{background:#FFD9E0;color:var(--red)}
+.pill.Pending{background:#EEF2F7;color:var(--muted)}
+
+/* name tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:12px}
+.tile{border:1px solid var(--edge);border-radius:18px;background:#fff;padding:16px 16px 14px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:8px;min-height:92px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--c)}
+.tile .tn{font-size:22px;font-weight:900;font-stretch:118%;line-height:1.05;word-break:break-word;padding-left:6px}
+.tile .td{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-left:6px}
+.tile:hover{transform:translateY(-3px);box-shadow:var(--shadow-hi)}
+.toolrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-top:18px}
+.addname{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.addname .input{flex:1;min-width:180px;max-width:320px}
+
+/* detail page */
+.dhead{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.bigname{font-size:clamp(40px,6vw,64px);font-weight:900;font-stretch:120%;line-height:1;word-break:break-word}
+.block{background:#fff;border:1px solid var(--edge);border-radius:18px;padding:16px 18px;margin-top:12px;box-shadow:var(--shadow)}
+.block h3{margin:0 0 8px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.07em;color:var(--azure)}
+.block p{margin:0;font-size:15px;line-height:1.5}
+.variants{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.var{border:1.5px solid var(--pink);background:#fff;border-radius:999px;padding:8px 14px;font-weight:900;font-stretch:112%;cursor:pointer;transition:transform .15s, background .15s}
+.var:hover{transform:translateY(-2px);background:#FFF0F8}
+.preview{margin-top:12px;border-radius:18px;padding:34px 20px;background:linear-gradient(135deg,#EAF3FF,#FFF0F8);border:1px solid var(--edge);text-align:center;min-height:170px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.preview .pn{font-size:clamp(34px,5vw,56px);font-weight:900;font-stretch:120%;color:var(--ink);word-break:break-word}
+.preview .pc{font-size:12px;color:var(--muted);max-width:520px;line-height:1.4}
+.demo{background:#FFF8D6;border:1px solid #E7C900;border-radius:14px;padding:10px 14px;font-size:13px;margin-top:12px;line-height:1.45}
+.rgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.rrow{background:#F7FAFF;border-radius:14px;padding:12px 14px;border:1px solid #E3ECFA}
+.rrow .rt{display:flex;justify-content:space-between;align-items:center;gap:8px;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.rrow p{margin:6px 0 0;font-size:13px;line-height:1.45}
+.pc2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.pc2 ul{margin:6px 0 0;padding-left:18px;font-size:14px;line-height:1.6}
+.pc2 h4{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:900}
+.bottombar{position:sticky;bottom:12px;margin-top:24px;background:rgba(255,255,255,.92);border:1px solid var(--edge);border-radius:999px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:var(--shadow-hi)}
+
+/* shortlist / library */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-top:14px}
+.pcard{background:#fff;border:1px solid var(--edge);border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow);text-align:left;cursor:pointer}
+.pcard .bn{font-size:24px;font-weight:900;font-stretch:118%;line-height:1.05;word-break:break-word}
+.pcard.final{border-color:var(--green);background:linear-gradient(180deg,#fff,#E9FFF1)}
+.pcard .meta{font-size:12px;color:var(--muted);line-height:1.4}
+.pcard .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.seg{display:inline-flex;gap:6px;padding:5px;border-radius:999px;background:#EAF2FF;margin-top:16px}
+.seg button{border:0;background:transparent;border-radius:999px;padding:9px 16px;font-weight:800;cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.seg button[aria-selected="true"]{background:#fff;box-shadow:var(--shadow)}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:10px 8px;border-bottom:1.5px solid var(--edge)}
+td{padding:11px 8px;border-bottom:1px solid #E3ECFA;vertical-align:middle}
+.tablewrap{overflow-x:auto;margin-top:14px;background:#fff;border:1px solid var(--edge);border-radius:18px}
+.final-banner{background:linear-gradient(135deg,#fff,#E9FFF1);border:1.5px solid var(--green);border-radius:20px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}
+.final-banner .big{font-size:28px;font-weight:900;font-stretch:118%}
+.empty{padding:22px;border:1.5px dashed rgba(0,110,255,.4);border-radius:18px;color:var(--muted);text-align:center;background:rgba(255,255,255,.5);margin-top:14px}
+details{margin-top:10px}
+details summary{cursor:pointer;font-weight:800;color:var(--azure);font-size:14px}
+
+/* about card */
+.about{padding:20px 18px;position:sticky;top:18px}
+.aboutT{margin:0;font-size:19px;font-weight:900;font-stretch:115%;text-transform:uppercase;line-height:1.05}
+.about .lead{font-size:12px;color:var(--muted);margin:6px 0 12px}
+.arow{display:flex;justify-content:space-between;align-items:center;background:#F4F8FF;border-radius:14px;padding:10px 12px;margin-bottom:7px;font-weight:800;font-size:13px;gap:8px}
+.arow .st{color:var(--azure);font-weight:900;text-align:right}
+.arow .st.ok{color:var(--pink)}
+.track{height:9px;border-radius:999px;background:#D6E7FF;overflow:hidden;margin-top:12px}
+.fill{height:100%;background:linear-gradient(90deg,var(--azure),var(--pink));border-radius:999px;transition:width .5s ease}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);background:#000;color:#fff;padding:12px 18px;border-radius:999px;font-weight:700;font-size:14px;opacity:0;pointer-events:none;transition:all .3s ease;z-index:10}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+@media (max-width:1000px){
+  .body{grid-template-columns:1fr}
+  .about{position:static}
+  .opts,.dgrid,.opts.cls,.rgrid,.pc2{grid-template-columns:1fr}
+  .main{padding:22px}
+  .title,.projname{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="card topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">SKY<br>BLUE</div>
+      <div style="min-width:0"><span class="title">NAMAE STUDIO</span><div class="projname" id="projname"></div></div>
+    </div>
+    <div class="tools">
+      <button class="icon plus" data-act="new-project" aria-label="New project" title="New project"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="icon" id="ic-library" data-act="view" data-view="library" aria-label="Library" title="Library"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="16" rx="1"/><path d="M17 5l3 1-3 14-3-1z"/></svg></button>
+      <button class="avatar" id="avatar" data-act="view" data-view="account" aria-label="Account and admin" title="Account">A</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs" aria-label="Flow"></nav>
+
+  <div class="body">
+    <main class="card main" id="main" aria-live="polite"></main>
+    <aside class="card about lift" id="about" aria-label="Project summary"></aside>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+/* ================= constants ================= */
+const KEY = 'namae-studio-html-v4';
+const TABS = [
+  {id:'brief', label:'Brief'},
+  {id:'names', label:'Names'},
+  {id:'shortlist', label:'Shortlist'}
+];
+const DIRS = [
+  {id:'phonetic', label:'Phonetic fusion', color:'#006EFF', desc:'Blend two sounds into one new word with a meaning.',
+   pool:[['Lumora','Lumen (light) + aura: a glow around a space.'],['Kindleo','Kindle + idea: a spark that becomes a thought.'],['Velora','Velocity + aurora: bright, quick movement.'],['Sunnova','Sun + nova: a burst of warm energy.']]},
+  {id:'repetition', label:'Repetition', color:'#FF3EA5', desc:'Repeat a short sound so it sticks and is easy to recall.',
+   pool:[['Tiktik','The steady tick of a clock; repeated, it becomes a rhythm.'],['Bolo Bolo','A playful double beat, like a bounce that keeps going.'],['Nana Nana','A soft, repeated call that feels friendly.'],['Zigzig','Quick back-and-forth, playful and busy.']]},
+  {id:'compound', label:'Compound', color:'#FFD84D', desc:'Join two real words into one that says what you do.',
+   pool:[['Craftmere','Craft + mere (a calm lake): a calm place to make things.'],['Hearthwell','Hearth + well: the warm place where ideas start.'],['Makeshelf','Make + shelf: where finished things are kept.'],['Workhaven','Work + haven: a safe place to make.']]},
+  {id:'coined', label:'Coined', color:'#7CC8F5', desc:'Invent a word from sounds that suggest the feel of the brand.',
+   pool:[['ARTORM','Art + storm: a burst of creative energy.'],['Quilvo','Quill + vox: the voice of the maker.'],['Maevin','Maker + vine: things that grow over time.'],['Brimoka','Brim + moka: a full cup of making time.']]},
+  {id:'metaphor', label:'Metaphor', color:'#FF9A3D', desc:'Use a picture word that carries the feeling of making.',
+   pool:[['Ember Loom','A warm thread of making.'],['Paper Kite','Lifting ideas off the ground.'],['Ink Lantern','Light for drawing and writing.'],['Tin Sparrow','Small, light and hand-made.']]},
+  {id:'borrowed', label:'Borrowed', color:'#9B6BFF', desc:'Take a word from another language. Meanings must be checked per market.',
+   pool:[['Tsukuri','Japanese: to make, to build.'],['Werkstatt','German: workshop.'],['Taller','Spanish: workshop.'],['Atelier','French: an artist’s studio.']]}
+];
+const MARKETS = [
+  {id:'domestic', label:'Domestic', help:'Checks only your home register. Faster and cheaper. Right if you sell at home only.'},
+  {id:'international', label:'International', help:'Checks export registers such as EUIPO, USPTO and WIPO. Needed before you sell abroad.'},
+  {id:'both', label:'Both', help:'Home and export checks together. Recommended if you plan to grow abroad.'}
+];
+const CLASSES = [
+  {id:'Education', help:'Courses, workshops, learning kits'},
+  {id:'Events', help:'Parties, camps, festivals, bookings'},
+  {id:'Consumer goods', help:'Physical kits, tools, packaging'},
+  {id:'Software', help:'Apps, platforms, online services'},
+  {id:'Food & drink', help:'Cafés, bakery, food products'},
+  {id:'Art & media', help:'Prints, publications, media content'}
+];
+const SEGMENT_EX = ['Mothers','Home bakers','Artists','Kids','Hobbyists','Makers'];
+const PARAMS = [
+  {id:'sound', label:'Sound & feel'},
+  {id:'origin', label:'Brand origin & meaning'},
+  {id:'similar', label:'Similar existing brands'},
+  {id:'domain', label:'Domain availability'},
+  {id:'trademark', label:'Trademark (chosen classes)'},
+  {id:'social', label:'Social handles'}
+];
+const ELEMENTS = ['Worm','Ora','Lum','Quill','Bloom','Tik','Nest','Spark'];
+const MIC_SVG = '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+
+/* ================= state ================= */
+const TODAY = () => new Date().toLocaleDateString();
+let uid = 0; const nid = p => p + Date.now().toString(36) + (uid++);
+function makeProject(name){
+  return {id:nid('p'), name, created:TODAY(), brief:'', restatement:'', restating:false, confirmed:false,
+    market:'', classes:[], segment:'', refs:[], dirs:[], names:[], final:null, selected:null};
+}
+const DEFAULT = () => {
+  const p = makeProject('Untitled project');
+  return {view:'brief', projects:[p], currentId:p.id, libMode:'projects',
+    profile:{name:'Y', role:'', email:'', language:'English'}, accountTab:'profile'};
+};
+let S;
+try { S = {...DEFAULT(), ...(JSON.parse(localStorage.getItem(KEY) || 'null') || {})}; if (!S.projects || !S.projects.length) S = DEFAULT(); }
+catch(e) { S = DEFAULT(); }
+let rec = null, listening = false;
+
+/* ================= helpers ================= */
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function $(s){ return document.querySelector(s); }
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600); }
+function P(){ return S.projects.find(p => p.id === S.currentId) || S.projects[0]; }
+function dirOf(id){ return DIRS.find(d => d.id === id); }
+function N(id){ return P().names.find(n => n.id === id); }
+function shortlisted(p = P()){ return p.names.filter(n => n.status === 'shortlisted' || n.status === 'locked'); }
+function suggestions(p = P()){ return p.names.filter(n => n.status === 'suggested' || n.status === 'kept'); }
+function tabEnabled(id){
+  if (id === 'brief') return true;
+  if (id === 'names') return P().confirmed && P().dirs.length > 0;
+  if (id === 'shortlist') return shortlisted().length > 0;
+  return false;
+}
+
+/* name generation and variation */
+function addName(p, dirId, n, m, extra = {}){
+  const d = dirOf(dirId) || {label:'Your names', color:'#000'};
+  const obj = {id:nid('n'), dir:dirId, dirLabel:d.label, color:d.color, n, m, status:'suggested', visual:'', research:null, ...extra};
+  p.names.push(obj); return obj;
+}
+function generateFor(p, dirId, count = 3){
+  const d = dirOf(dirId);
+  const used = p.names.filter(x => x.dir === dirId).map(x => x.n.toLowerCase());
+  const fresh = d.pool.filter(x => !used.includes(x[0].toLowerCase())).sort(() => Math.random() - 0.5).slice(0, count);
+  fresh.forEach(([n, m]) => addName(p, dirId, n, m));
+  return fresh.length;
+}
+function similarVariants(n, k = 4){
+  const out = new Set(); let tries = 0;
+  const base = n.toUpperCase().replace(/\s+/g, '');
+  while (out.size < k && tries < 80 && base.length >= 4) {
+    tries++;
+    const arr = base.split('');
+    const i = 1 + Math.floor(Math.random() * (arr.length - 3));
+    const op = Math.random();
+    if (op < 0.4) { [arr[i], arr[i+1]] = [arr[i+1], arr[i]]; }
+    else if (op < 0.7) { const c = arr.splice(i, 1)[0]; arr.splice(Math.min(arr.length, i + 1 + Math.floor(Math.random()*2)), 0, c); }
+    else { arr.splice(i, 0, ['W','L','N','Y','R'][Math.floor(Math.random()*5)]); }
+    const v = arr.join('');
+    if (v !== base) out.add(v);
+  }
+  return [...out].slice(0, k);
+}
+function newElementVariants(n, k = 3){
+  const base = n.toUpperCase().replace(/\s+/g, '').slice(0, 4);
+  return [...ELEMENTS].sort(() => Math.random() - 0.5).slice(0, k).map(e => base + e.toUpperCase());
+}
+
+/* demo research: deterministic from the name, clearly labelled */
+function demoResearch(n){
+  const seed = [...n].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const pick = (arr, k) => arr[(seed + k) % arr.length];
+  const results = PARAMS.map((p, k) => ({
+    id:p.id, label:p.label, status: pick(['Clear','Clear','Review','Pending','Clear','Blocked'], k*2),
+    summary: {
+      sound:'Demo: read the name aloud in English and two market languages to check how it sounds.',
+      origin:'Demo: meaning and roots would be checked against dictionaries and market languages.',
+      similar:'Demo: close matches would come from the EUIPO and USPTO registers and web search.',
+      domain:'Demo: the .com and market extensions would be looked up through a registrar API.',
+      trademark:'Demo: the chosen classes would be searched in the official registers.',
+      social:'Demo: the main social handles would be checked for availability.'
+    }[p.id],
+    source: pick(['Registry search (demo)','Registrar lookup (demo)','Web search (demo)'], k)
+  }));
+  const blocked = results.some(r => r.status === 'Blocked');
+  const review = results.filter(r => r.status === 'Review' || r.status === 'Pending').length;
+  const verdict = blocked ? 'Stop' : review ? 'Caution' : 'Go';
+  const pros = [
+    pick(['Short and easy to say','Easy to spell after one hearing','Feels distinct in the category'], seed % 3),
+    pick(['Links to the brief','Works across the chosen markets','Memorable through its sound'], (seed+1) % 3)
+  ];
+  const cons = [
+    pick(['Sounds close to an existing word','Meaning needs a check in one market','Domain may not be available as .com'], (seed+2) % 3),
+    pick(['Trademark search not yet run','Social handles unverified','Pronunciation may vary'], (seed+3) % 3)
+  ];
+  return {date: TODAY(), verdict, results, pros, cons, review};
+}
+
+/* ================= render ================= */
+function render(){
+  const p = P();
+  $('#projname').textContent = p.name;
+  renderTabs(); renderAbout();
+  const views = {brief:renderBrief, names:renderNames, detail:renderDetail, shortlist:renderShortlist, library:renderLibrary, account:renderAccount};
+  $('#main').innerHTML = (views[S.view] || renderBrief)();
+  $('#avatar').classList.toggle('on', S.view === 'account');
+  document.querySelector('#ic-library').classList.toggle('on', S.view === 'library');
+  save();
+}
+
+function renderTabs(){
+  const order = TABS.map(t => t.id);
+  const curIdx = order.indexOf(S.view === 'detail' ? 'names' : S.view);
+  $('#tabs').innerHTML = TABS.map((t, i) => {
+    const en = tabEnabled(t.id);
+    const cur = (S.view === t.id) || (S.view === 'detail' && t.id === 'names');
+    const cls = cur ? 'current' : (curIdx > -1 && i < curIdx ? 'done' : '');
+    return `<button class="tab ${cls}" data-act="view" data-view="${t.id}" ${en ? '' : 'disabled'}><span class="n">${i+1}</span>${t.label.toUpperCase()}</button>`;
+  }).join('');
+}
+
+function renderAbout(){
+  const p = P();
+  const parts = [p.confirmed, p.dirs.length > 0, p.names.length > 0, shortlisted(p).length > 0, !!p.final].filter(Boolean).length;
+  const mk = MARKETS.find(m => m.id === p.market);
+  $('#about').innerHTML = `
+    <h2 class="aboutT">${esc(p.name)}</h2>
+    <p class="lead">Set on the Brief. Read-only on the other tabs.</p>
+    <div class="arow"><span>Brief</span><span class="st ${p.confirmed?'ok':''}">${p.confirmed?'Confirmed':(p.restating?'Restating':(p.brief.trim()?'Draft':'Empty'))}</span></div>
+    <div class="arow"><span>Market</span><span class="st">${mk ? mk.label : 'Not set'}</span></div>
+    <div class="arow"><span>Classes</span><span class="st">${p.classes.length || 'Not set'}</span></div>
+    <div class="arow"><span>Segment</span><span class="st">${p.segment ? esc(p.segment.length > 22 ? p.segment.slice(0,22)+'…' : p.segment) : 'Not set'}</span></div>
+    <div class="arow"><span>Directions</span><span class="st">${p.dirs.length}</span></div>
+    <div class="arow"><span>Suggested names</span><span class="st">${suggestions(p).length}</span></div>
+    <div class="arow"><span>Shortlisted</span><span class="st">${shortlisted(p).length}</span></div>
+    <div class="arow"><span>Final name</span><span class="st ${p.final?'ok':''}">${p.final ? esc(N(p.final)?.n || '—') : 'Not yet'}</span></div>
+    <div class="track"><div class="fill" style="width:${parts/5*100}%"></div></div>
+    <p class="muted small" style="margin-top:6px">${parts} of 5 stages have content</p>`;
+}
+
+/* ---- Brief: one page ---- */
+function renderBrief(){
+  const p = P();
+  const restateBlock = p.confirmed ? `
+    <div class="restate"><span class="pill locked">Understanding confirmed</span><p>${esc(p.restatement)}</p>
+      <div class="right" style="margin-top:10px"><button class="btn ghost sm" data-act="edit-brief">Edit</button></div></div>`
+  : p.restating ? `
+    <div class="restate"><span class="sect" style="margin:0 0 6px">Our understanding</span>
+      <p class="help">Restate the business in your own words. Nothing is suggested until you confirm.</p>
+      <textarea id="restatement" class="field" style="min-height:90px" placeholder="What the business is, who it is for, and the feeling it should give.">${esc(p.restatement)}</textarea>
+      <div class="right" style="margin-top:10px"><button class="btn ghost sm" data-act="unrestate">Back</button><button class="btn azure sm" data-act="confirm">Confirm</button></div></div>` : '';
+  return `
+    <h1 class="display">Tell us about the business</h1>
+    <p class="sub">Explain it in your own words. Short is fine.</p>
+    <textarea id="brief" class="field" placeholder="Example: a DIY kit brand for all the different types of hobbyists.">${esc(p.brief)}</textarea>
+    <div class="microw">
+      <button class="mic ${listening?'on':''}" data-act="mic" aria-pressed="${listening}" aria-label="${listening?'Stop recording':'Start recording'}">${MIC_SVG}</button>
+      <span class="small muted">${listening ? 'Listening... tap again to stop.' : 'Tap to speak. Tap again to stop.'}</span>
+      <span class="right" style="margin-left:auto"><button class="btn black sm" data-act="restate" ${p.brief.trim().length >= 10 ? '' : 'disabled'}>Understand my brief</button></span>
+    </div>
+    ${restateBlock}
+
+    <h2 class="sect">Market</h2>
+    <div class="opts">${MARKETS.map(m => `<button class="opt ${p.market===m.id?'on':''}" data-act="set-market" data-val="${m.id}" aria-pressed="${p.market===m.id}"><b>${m.label}</b><span>${m.help}</span></button>`).join('')}</div>
+
+    <h2 class="sect">Classes</h2>
+    <p class="help">Pick the areas your brand works in. Each one decides which trademark register is searched.</p>
+    <div class="opts cls">${CLASSES.map(c => { const on = p.classes.includes(c.id); return `<button class="opt cls ${on?'on':''}" data-act="toggle-class" data-val="${esc(c.id)}" aria-pressed="${on}"><b>${esc(c.id)}</b><span>${esc(c.help)}</span></button>`; }).join('')}</div>
+
+    <h2 class="sect">Target segment</h2>
+    <p class="help">Write who the brand is for, in your own words. Tap an example to add it.</p>
+    <input class="input" id="segment" style="margin-top:10px" value="${esc(p.segment)}" placeholder="e.g. mothers who sew, home bakers, kids aged 8 to 12">
+    <div class="chips">${SEGMENT_EX.map(s => `<button class="chip pinkon" data-act="add-segment" data-val="${esc(s)}">+ ${esc(s)}</button>`).join('')}</div>
+
+    <h2 class="sect">References</h2>
+    <p class="help">Type a brand or name you like or want to avoid, then tap Like or Avoid. Links can come later.</p>
+    <div class="refrow"><input class="input" id="refin" placeholder="e.g. Etsy, Lego, Muji" aria-label="Reference"><button class="btn ghost sm" data-act="add-ref">Add</button></div>
+    <div class="chips">${p.refs.map((r,i) => `<span class="ref">${esc(r.v)}<button class="${r.t}" data-act="toggle-ref" data-i="${i}">${r.t}</button><button class="x" data-act="rm-ref" data-i="${i}" aria-label="Remove">×</button></span>`).join('') || '<span class="small muted">No references yet.</span>'}</div>
+
+    <h2 class="sect">Directions</h2>
+    <p class="help">${p.confirmed ? 'Pick one or more. Each direction adds its own name suggestions.' : 'Confirm your understanding above to unlock directions.'}</p>
+    <div class="dgrid">${DIRS.map(d => { const on = p.dirs.includes(d.id); return `<button class="dcard lift ${on?'on':''}" style="--c:${d.color}" data-act="dir" data-id="${d.id}" aria-pressed="${on}" ${p.confirmed?'':'disabled'}><span class="dtag">${on?'Selected':'Tap to select'}</span><span class="dname">${esc(d.label)}</span><span class="ddesc">${esc(d.desc)}</span></button>`; }).join('')}</div>
+
+    <div class="footbar">
+      <span class="hint">${p.dirs.length ? p.dirs.length + ' direction' + (p.dirs.length>1?'s':'') + ' selected' : 'Pick at least one direction'}</span>
+      <button class="btn black" data-act="view" data-view="names" ${tabEnabled('names') ? '' : 'disabled'}>Next: Names →</button>
+    </div>`;
+}
+
+/* ---- Names: live suggestions, names only ---- */
+function renderNames(){
+  const p = P();
+  const list = suggestions(p);
+  const sel = DIRS.filter(d => p.dirs.includes(d.id));
+  return `
+    <h1 class="display">Names</h1>
+    <div class="toolrow">
+      <span class="hint">${list.length} suggestions · ${sel.length} direction${sel.length===1?'':'s'}</span>
+      <div class="right">
+        <button class="btn ghost sm" data-act="reshuffle">Reshuffle</button>
+        <button class="btn azure sm" data-act="more-names">Generate more</button>
+      </div>
+    </div>
+    ${list.length ? `<div class="tiles">${list.map(n => `<button class="tile lift" style="--c:${n.color}" data-act="open" data-id="${n.id}"><span class="tn">${esc(n.n)}</span><span class="td">${esc(n.dirLabel)}</span></button>`).join('')}</div>`
+      : `<div class="empty">${p.confirmed && sel.length ? 'No suggestions left. Tap Generate more.' : 'Confirm your brief and pick a direction on the Brief tab first.'}</div>`}
+    <div class="addname"><input class="input" id="cn" placeholder="Add your own name" aria-label="Your own name"><button class="btn sm black" data-act="add-own">Add</button></div>
+    <div class="footbar">
+      <button class="btn ghost" data-act="view" data-view="brief">← Back to brief</button>
+      <button class="btn black" data-act="view" data-view="shortlist" ${tabEnabled('shortlist')?'':'disabled'}>Shortlist →</button>
+    </div>`;
+}
+
+/* ---- Name detail: meaning, variations, visual, research, decision bar ---- */
+function renderDetail(){
+  const n = N(S.selected);
+  if (!n) { S.view = 'names'; return renderNames(); }
+  const vars = n.variants || [];
+  const r = n.research;
+  return `
+    <button class="btn link" style="align-self:flex-start;padding-left:0" data-act="view" data-view="names">← All names</button>
+    <div class="dhead" style="margin-top:10px">
+      <div><div class="bigname">${esc(n.n)}</div><div style="margin-top:8px" class="right"><span class="pill" style="background:${n.color};color:#000">${esc(n.dirLabel)}</span><span class="pill ${n.status}">${n.status}</span></div></div>
+    </div>
+
+    <div class="block"><h3>Meaning & idea</h3><p>${esc(n.m)}</p></div>
+
+    <div class="block"><h3>Variations</h3>
+      <p class="help" style="margin-bottom:8px">Tap a variation to add it to the suggestions and open it.</p>
+      <div class="variants">${vars.map(v => `<button class="var" data-act="open-variant" data-val="${esc(v)}">${esc(v)}</button>`).join('') || '<span class="small muted">Tap a button below to create variations.</span>'}</div>
+      <div class="right" style="margin-top:12px">
+        <button class="btn ghost sm" data-act="similar">Similar variations</button>
+        <button class="btn ghost sm" data-act="newel">Something new</button>
+      </div>
+    </div>
+
+    <div class="block"><h3>Visualise</h3>
+      <textarea class="field" style="min-height:80px;margin-top:0" id="visdir" placeholder="Describe the look, e.g. hand-drawn, warm pink and azure, playful letters">${esc(n.visual)}</textarea>
+      <div class="right" style="margin-top:10px"><button class="btn azure sm" data-act="visualise">Generate visual</button></div>
+      ${n.visual ? `<div class="preview"><div class="pn">${esc(n.n)}</div><div class="pc">Text preview only. Image generation is not connected yet. Direction: ${esc(n.visual)}</div></div>` : ''}
+    </div>
+
+    <div class="block"><h3>Research</h3>
+      <p class="help" style="margin-bottom:10px">One click researches this name on every parameter and gives a structured outcome.</p>
+      <button class="btn black" data-act="research">${r ? 'Research again' : 'Research this name'}</button>
+      ${r ? `
+        <div class="demo"><b>Demo output.</b> The research backend is not connected yet. The structure is final; the data is placeholder.</div>
+        <div class="right" style="margin-top:12px"><span class="small muted">Verdict</span><span class="pill ${r.verdict}">${r.verdict}</span><span class="small muted">${esc(r.date)} · ${r.review} to check</span></div>
+        <div class="rgrid">${r.results.map(x => `<div class="rrow"><div class="rt"><span>${esc(x.label)}</span><span class="pill ${x.status}">${x.status}</span></div><p>${esc(x.summary)}</p><p class="small muted" style="margin-top:4px">${esc(x.source)}</p></div>`).join('')}</div>
+        <div class="pc2">
+          <div class="rrow"><h4>Pros</h4><ul>${r.pros.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
+          <div class="rrow"><h4>Cons</h4><ul>${r.cons.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
+        </div>` : '<div class="empty" style="margin-top:12px">No research yet for this name.</div>'}
+    </div>
+
+    <div class="bottombar">
+      <span class="small muted" style="padding-left:12px">Decide on this name</span>
+      <div class="right">
+        <button class="btn ghost sm" data-act="set-status" data-val="kept" ${n.status==='kept'?'disabled':''}>Keep selected</button>
+        <button class="btn azure sm" data-act="set-status" data-val="shortlisted">Shortlist</button>
+        <button class="btn pink sm" data-act="set-status" data-val="locked">Lock name</button>
+        <button class="btn danger sm" data-act="set-status" data-val="rejected">Reject</button>
+      </div>
+    </div>`;
+}
+
+/* ---- Shortlist: this project's shortlisted and locked names ---- */
+function renderShortlist(){
+  const p = P();
+  const list = shortlisted(p);
+  if (!list.length) return `<h1 class="display">Shortlist</h1><div class="empty">No shortlisted names yet. Open a name on the Names tab and shortlist it.</div>
+    <div class="footbar"><button class="btn ghost" data-act="view" data-view="names">← Back to names</button></div>`;
+  const final = p.final ? N(p.final) : null;
+  return `
+    <h1 class="display">Shortlist</h1>
+    <p class="sub">Shortlisted and locked names for this project. Compare them, finalise one, or go back for more.</p>
+    ${final ? `<div class="final-banner"><div><span class="pill locked">Final name</span><div class="big">${esc(final.n)}</div></div>
+      <div class="right"><button class="btn ghost sm" data-act="open" data-id="${final.id}">Open</button><button class="btn ghost sm" data-act="clear-final">Clear final</button></div></div>` : ''}
+    <div class="tablewrap"><table>
+      <thead><tr><th>Name</th><th>Direction</th><th>Status</th><th>Verdict</th><th>Actions</th></tr></thead>
+      <tbody>${list.map(n => `<tr>
+        <td><b style="font-size:16px">${esc(n.n)}</b></td>
+        <td>${esc(n.dirLabel)}</td>
+        <td><span class="pill ${n.status}">${n.status}</span></td>
+        <td>${n.research ? `<span class="pill ${n.research.verdict}">${n.research.verdict}</span>` : '<span class="pill Pending">Not researched</span>'}</td>
+        <td><div class="right">
+          <button class="btn ghost sm" data-act="open" data-id="${n.id}">Open</button>
+          ${n.status==='locked' ? '' : `<button class="btn azure sm" data-act="finalise" data-id="${n.id}">Finalise</button>`}
+        </div></td></tr>`).join('')}</tbody>
+    </table></div>
+    <div class="footbar">
+      <button class="btn ghost" data-act="view" data-view="names">← Generate more names</button>
+      <span class="hint">${list.length} shortlisted</span>
+    </div>`;
+}
+
+/* ---- Library: all projects, plus all names collectively ---- */
+function renderLibrary(){
+  const mode = S.libMode;
+  const body = mode === 'projects' ? `
+    <div class="cards">${S.projects.map(p => `
+      <article class="pcard ${p.final?'final':''}" data-act="open-project" data-id="${p.id}" role="button" tabindex="0">
+        <div class="row"><span class="pill ${p.final?'locked':'suggested'}">${p.final?'Final chosen':'In progress'}</span>${p.id===S.currentId?'<span class="pill kept">Open</span>':''}</div>
+        <div class="bn">${esc(p.final ? (N(p.final)?.n || p.name) : p.name)}</div>
+        <div class="meta">${esc(p.name)} · created ${esc(p.created)}</div>
+        <div class="meta">${p.names.length} names · ${shortlisted(p).length} shortlisted · ${p.dirs.length} directions</div>
+        <div class="meta">${MARKETS.find(m=>m.id===p.market)?.label || 'Market not set'}</div>
+      </article>`).join('')}</div>` : `
+    <div class="tablewrap"><table>
+      <thead><tr><th>Name</th><th>Project</th><th>Status</th><th>Verdict</th></tr></thead>
+      <tbody>${S.projects.flatMap(p => p.names.map(n => ({p, n}))).map(({p,n}) => `<tr style="cursor:pointer" data-act="open-project" data-id="${p.id}">
+        <td><b>${esc(n.n)}</b></td><td>${esc(p.name)}</td><td><span class="pill ${n.status}">${n.status}</span></td>
+        <td>${n.research ? `<span class="pill ${n.research.verdict}">${n.research.verdict}</span>` : '<span class="pill Pending">Not researched</span>'}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No names yet.</td></tr>'}</tbody>
+    </table></div>`;
+  return `
+    <h1 class="display">Library</h1>
+    <p class="sub">Every project, its shortlist and any finalised name. Open a project to edit it.</p>
+    <div class="seg" role="tablist">
+      <button role="tab" aria-selected="${mode==='projects'}" data-act="lib-mode" data-val="projects">Projects</button>
+      <button role="tab" aria-selected="${mode==='names'}" data-act="lib-mode" data-val="names">All names</button>
+    </div>
+    ${body}
+    <div class="footbar"><button class="btn ghost" data-act="view" data-view="brief">← Back to brief</button><button class="btn black" data-act="new-project">+ New project</button></div>`;
+}
+
+/* ---- Account ---- */
+function renderAccount(){
+  const p = S.profile;
+  return `
+    <h1 class="display">Account</h1>
+    <p class="sub">Your profile and this workspace.</p>
+    <div class="block" style="margin-top:16px">
+      <h3>Profile</h3>
+      <div class="rgrid" style="grid-template-columns:1fr 1fr">
+        <label class="small" style="font-weight:800">Name<input class="input" data-pbind="name" value="${esc(p.name)}"></label>
+        <label class="small" style="font-weight:800">Role<input class="input" data-pbind="role" value="${esc(p.role)}" placeholder="e.g. Brand lead"></label>
+        <label class="small" style="font-weight:800">Email<input class="input" data-pbind="email" value="${esc(p.email)}" placeholder="name@company.com"></label>
+        <label class="small" style="font-weight:800">Language<select class="select" data-pbind="language">${['English','Hindi','Spanish','French'].map(l => `<option ${l===p.language?'selected':''}>${l}</option>`).join('')}</select></label>
+      </div>
+    </div>
+    <div class="block"><h3>Workspace</h3>
+      <p class="small muted" style="margin:0 0 10px">Projects are stored on this device. Starting a new project does not delete the others.</p>
+      <button class="btn danger sm" data-act="delete-project">Delete this project</button>
+    </div>
+    <div class="footbar"><button class="btn ghost" data-act="view" data-view="brief">← Back to brief</button></div>`;
+}
+
+/* ================= voice ================= */
+function toggleMic(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Voice works in Chrome or Edge. You can type here instead.'); return; }
+  if (listening) { rec && rec.stop(); return; }
+  rec = new SR(); rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = false;
+  rec.onresult = e => {
+    let t = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript + ' ';
+    const p = P(); p.brief = (p.brief + ' ' + t).trim();
+    const ta = $('#brief'); if (ta) ta.value = p.brief; save();
+  };
+  rec.onend = () => { listening = false; render(); };
+  rec.onerror = () => { listening = false; toast('Mic stopped. Try again.'); render(); };
+  rec.start(); listening = true; render();
+}
+
+/* ================= actions ================= */
+function act(name, t){
+  const p = P();
+  switch (name) {
+    case 'view': S.view = t.dataset.view; break;
+    case 'mic': toggleMic(); return;
+    case 'restate':
+      if (p.brief.trim().length < 10) { toast('Add a few words about the business first.'); return; }
+      p.restating = true; break;
+    case 'unrestate': p.restating = false; break;
+    case 'edit-brief': p.confirmed = false; p.restating = true; break;
+    case 'confirm':
+      if (p.restatement.trim().length < 10) { toast('Restate it in a sentence or two first.'); return; }
+      p.confirmed = true; p.restating = false; toast('Understanding confirmed'); break;
+    case 'set-market': p.market = t.dataset.val; break;
+    case 'toggle-class': { const v = t.dataset.val; p.classes = p.classes.includes(v) ? p.classes.filter(x => x !== v) : [...p.classes, v]; break; }
+    case 'add-segment': { const v = t.dataset.val; p.segment = p.segment ? (p.segment.includes(v) ? p.segment : p.segment + ', ' + v) : v; break; }
+    case 'add-ref': {
+      const v = ($('#refin')?.value || '').trim();
+      if (!v) { toast('Type a brand or name first.'); return; }
+      p.refs.push({v, t:'like'}); break;
+    }
+    case 'toggle-ref': { const r = p.refs[+t.dataset.i]; if (r) r.t = r.t === 'like' ? 'avoid' : 'like'; break; }
+    case 'rm-ref': p.refs.splice(+t.dataset.i, 1); break;
+    case 'dir': {
+      const id = t.dataset.id;
+      if (p.dirs.includes(id)) p.dirs = p.dirs.filter(x => x !== id);
+      else { p.dirs.push(id); if (!p.names.some(n => n.dir === id)) generateFor(p, id, 3); }
+      break;
+    }
+    case 'reshuffle': p.names = p.names.sort(() => Math.random() - 0.5); break;
+    case 'more-names': {
+      let added = 0;
+      p.dirs.forEach(d => { added += generateFor(p, d, 2); });
+      if (!added) toast('No more sample names. Add your own, or pick another direction.');
+      break;
+    }
+    case 'add-own': {
+      const v = ($('#cn')?.value || '').trim();
+      if (!v) { toast('Type a name first.'); return; }
+      addName(p, 'custom', v, 'Your own name. Meaning to be written.'); break;
+    }
+    case 'open': S.selected = t.dataset.id; S.view = 'detail'; break;
+    case 'open-variant': {
+      const v = t.dataset.val;
+      const parent = N(S.selected);
+      const existing = p.names.find(x => x.n === v);
+      const target = existing || addName(p, parent ? parent.dir : 'custom', v, `Variation of ${parent ? parent.n : ''}. Meaning to be checked.`);
+      S.selected = target.id; break;
+    }
+    case 'similar': {
+      const n = N(S.selected); if (!n) return;
+      n.variants = similarVariants(n.n, 4); break;
+    }
+    case 'newel': {
+      const n = N(S.selected); if (!n) return;
+      n.variants = newElementVariants(n.n, 3); break;
+    }
+    case 'visualise': {
+      const n = N(S.selected); if (!n) return;
+      const v = ($('#visdir')?.value || '').trim();
+      if (!v) { toast('Describe the look first.'); return; }
+      n.visual = v; toast('Preview updated. Image generation is not connected yet.'); break;
+    }
+    case 'research': {
+      const n = N(S.selected); if (!n) return;
+      n.research = demoResearch(n.n); toast('Research complete (demo output)'); break;
+    }
+    case 'set-status': {
+      const n = N(S.selected); if (!n) return;
+      const v = t.dataset.val;
+      if (v === 'locked') { p.names.forEach(x => { if (x.status === 'locked') x.status = 'shortlisted'; }); p.final = n.id; }
+      if (n.status === 'locked' && v !== 'locked') p.final = null;
+      n.status = v; break;
+    }
+    case 'finalise': {
+      const n = N(t.dataset.id); if (!n) return;
+      p.names.forEach(x => { if (x.status === 'locked') x.status = 'shortlisted'; });
+      n.status = 'locked'; p.final = n.id; toast('Final name set: ' + n.n); break;
+    }
+    case 'clear-final': {
+      const n = N(p.final); if (n) n.status = 'shortlisted';
+      p.final = null; break;
+    }
+    case 'new-project': {
+      const np = makeProject('Project ' + (S.projects.length + 1));
+      S.projects.unshift(np); S.currentId = np.id; S.view = 'brief'; toast('New project started'); break;
+    }
+    case 'open-project': {
+      S.currentId = t.dataset.id; S.view = 'brief'; break;
+    }
+    case 'lib-mode': S.libMode = t.dataset.val; break;
+    case 'delete-project': {
+      if (S.projects.length === 1) { toast('Keep at least one project.'); return; }
+      if (!confirm('Delete this project and all its names?')) return;
+      S.projects = S.projects.filter(x => x.id !== p.id);
+      S.currentId = S.projects[0].id; S.view = 'brief'; toast('Project deleted'); break;
+    }
+  }
+  render();
+}
+
+/* ================= events ================= */
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-act]');
+  if (!t || t.disabled) return;
+  act(t.dataset.act, t);
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'refin') { e.preventDefault(); act('add-ref', e.target); }
+  if (e.key === 'Enter' && e.target.id === 'cn') { e.preventDefault(); act('add-own', e.target); }
+});
+document.addEventListener('input', e => {
+  const t = e.target, p = P();
+  if (t.id === 'brief') { p.brief = t.value; save(); }
+  else if (t.id === 'restatement') { p.restatement = t.value; save(); }
+  else if (t.id === 'segment') { p.segment = t.value; save(); }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.pbind) { S.profile[t.dataset.pbind] = t.value; render(); }
+});
+
+render();
+</script>
+</body>
+</html>
