@@ -1,11 +1,10 @@
 'use strict';
 // AI adapter (Google Gemini REST). Model names change over time: set the model in Admin → Connections.
-// Not tested against the live service in this version.
 
 async function call(cfg, prompt) {
   const key = cfg.keys.gemini;
   if (!key) throw new Error('No AI key saved');
-  const model = (cfg.llm && cfg.llm.model) || 'gemini-2.0-flash';
+  const model = (cfg.llm && cfg.llm.model) || 'gemini-3.8-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
   const r = await fetch(url, {
     method: 'POST',
