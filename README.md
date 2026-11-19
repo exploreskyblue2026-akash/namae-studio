@@ -25,3 +25,16 @@ Open http://localhost:3000. The first start creates the admin user from `ADMIN_I
 
 - `server/data.json` holds users and API keys. It is git-ignored. Do not commit it.
 - Storage is a JSON file for now. Move to a hosted database before deploying to a free host that does not keep files.
+
+## Environment variables (set these in Render → Environment)
+
+| Variable | Purpose |
+| --- | --- |
+| `ADMIN_ID` | Admin login email (default `admin@skyblue.local`) |
+| `ADMIN_PASSWORD` | Admin login password (default `change-me-now`; set this) |
+| `GEMINI_API_KEY` | AI: restates the brief, suggests classes/segments, checks sound, origin, similar brands |
+| `EUIPO_CLIENT_ID`, `EUIPO_CLIENT_SECRET` | EU trademark check (adapter still placeholder) |
+| `USPTO_API_KEY` | US trademark check (adapter still placeholder) |
+| `WHOISXML_API_KEY` | Domain and social checks (adapter still placeholder) |
+
+A key set here switches its source on automatically and takes priority over the key typed in Admin. Keys typed in Admin are saved to `data.json`, which the free tier wipes on restart, so prefer env vars for anything you need to keep.

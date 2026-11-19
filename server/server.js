@@ -41,8 +41,19 @@ function load() {
 let db = load();
 function save() { const tmp = DB + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(db, null, 2)); fs.renameSync(tmp, DB); }
 
+// API keys: Render environment variables win over keys typed in Admin.
+// Env vars persist across restarts; keys saved in data.json do not on the free tier.
+const ENV_KEYS = { gemini: 'GEMINI_API_KEY', euipo_client_id: 'EUIPO_CLIENT_ID', euipo_client_secret: 'EUIPO_CLIENT_SECRET', uspto: 'USPTO_API_KEY', whoisxml: 'WHOISXML_API_KEY' };
+const SOURCE_KEYS = { llm: ['gemini'], euipo: ['euipo_client_id', 'euipo_client_secret'], uspto: ['uspto'], whoisxml: ['whoisxml'] };
+function cfg() {
+  const keys = { ...db.config.keys };
+  for (const k of Object.keys(ENV_KEYS)) if (process.env[ENV_KEYS[k]]) keys[k] = process.env[ENV_KEYS[k]].trim();
+  const sources = { ...db.config.sources };
+  for (const [src, ks] of Object.entries(SOURCE_KEYS)) if (ks.every(k => keys[k])) sources[src] = true;
+  return { ...db.config, keys, sources };
+}
 const uiText = () => ({ ...C.UI_DEFAULT, ...db.config.uiText });
-const llmReady = () => !!(db.config.sources.llm && db.config.keys.gemini);
+const llmReady = () => { const c = cfg(); return !!(c.sources.llm && c.keys.gemini); };
 
 /* ---------- auth ---------- */
 function auth(req, res, next) {
@@ -162,7 +173,7 @@ app.post('/api/projects/:id/understand', auth, async (req, res) => {
   p.brief = text; p.restating = true;
   let connected = llmReady();
   if (connected) {
-    try { p.restatement = await llm.restate(db.config, text); }
+    try { p.restatement = await llm.restate(cfg(), text); }
     catch (e) { connected = false; }
   }
   save(); res.json({ project: p, connected });
@@ -173,7 +184,7 @@ app.post('/api/projects/:id/suggest', auth, async (req, res) => {
   const field = (req.body || {}).field;
   if (!['classes', 'segments'].includes(field)) return res.status(400).json({ error: 'Unknown field' });
   if (llmReady() && p.restatement) {
-    try { p.suggest[field] = await llm.suggest(db.config, field, p.restatement); }
+    try { p.suggest[field] = await llm.suggest(cfg(), field, p.restatement); }
     catch (e) { return res.status(502).json({ error: 'AI suggestion failed: ' + e.message }); }
   }
   save(); res.json(p);
@@ -219,7 +230,7 @@ app.post('/api/projects/:id/names/:nid/variations', auth, (req, res) => {
 app.post('/api/projects/:id/names/:nid/research', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const n = nameOf(p, req.params.nid); if (!n) return res.status(404).json({ error: 'Name not found' });
-  try { n.research = await research.run(n.n, db.config); }
+  try { n.research = await research.run(n.n, cfg()); }
   catch (e) { return res.status(502).json({ error: 'Research failed: ' + e.message }); }
   save(); res.json(p);
 });
@@ -266,8 +277,8 @@ app.get('/api/admin/logs', auth, adminOnly, (req, res) => {
 
 function configView() {
   const keys = {};
-  Object.entries(db.config.keys).forEach(([k, v]) => { keys[k] = { set: !!v, hint: mask(v) }; });
-  return { keys, sources: db.config.sources, llm: db.config.llm, uiText: uiText(), llmReady: llmReady() };
+  Object.entries(cfg().keys).forEach(([k, v]) => { keys[k] = { set: !!v, hint: mask(v), fromEnv: !!process.env[ENV_KEYS[k]] }; });
+  return { keys, sources: cfg().sources, llm: db.config.llm, uiText: uiText(), llmReady: llmReady() };
 }
 app.get('/api/admin/config', auth, adminOnly, (req, res) => res.json(configView()));
 
@@ -289,7 +300,7 @@ app.put('/api/admin/ui-text', auth, adminOnly, (req, res) => {
 });
 
 app.post('/api/admin/test/:source', auth, adminOnly, async (req, res) => {
-  res.json(await research.test(req.params.source, db.config, llm));
+  res.json(await research.test(req.params.source, cfg(), llm));
 });
 
 /* ---------- fallbacks ---------- */
