@@ -509,7 +509,7 @@ async function doAct(a, t){
     case 'understand': {
       const r = await api('POST', `/projects/${p.id}/understand`, {text: p.brief});
       upsert(r.project);
-      if (!r.connected) toast('AI is off. Write the understanding by hand.');
+      if (!r.connected) toast(r.aiError ? ('AI error: ' + r.aiError) : 'AI is off. Write the understanding by hand.');
       break;
     }
     case 'cancel-restate': upsert(await save({restating:false})); break;

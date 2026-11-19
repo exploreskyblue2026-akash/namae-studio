@@ -172,11 +172,12 @@ app.post('/api/projects/:id/understand', auth, async (req, res) => {
   if (text.length < 10) return res.status(400).json({ error: 'Write a few words first' });
   p.brief = text; p.restating = true;
   let connected = llmReady();
+  let aiError = '';
   if (connected) {
     try { p.restatement = await llm.restate(cfg(), text); }
-    catch (e) { connected = false; }
+    catch (e) { connected = false; aiError = e.message; console.error('AI restate failed:', e.message); }
   }
-  save(); res.json({ project: p, connected });
+  save(); res.json({ project: p, connected, aiError });
 });
 
 app.post('/api/projects/:id/suggest', auth, async (req, res) => {
