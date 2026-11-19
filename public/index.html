@@ -633,6 +633,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset.save === undefined && t.dataset.pname === undefined && !t.dataset.uname && !t.dataset.urole && t.dataset.logsel === undefined) return;
   act(async () => {
     if (t.dataset.save) { const body = {}; body[t.dataset.save] = t.value; upsert(await api('PUT', `/projects/${P().id}`, body)); }
     else if (t.dataset.pname !== undefined) { S.me = await api('PUT', '/me', {name: t.value}); }
