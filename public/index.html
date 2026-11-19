@@ -453,7 +453,7 @@ function adminHTML(){
         <span class="pill ${c.keys[k].set?'Clear':'Pending'}">${c.keys[k].set?esc(c.keys[k].hint):'—'}</span>
         <input type="password" data-key="${k}" placeholder="Key" style="max-width:240px">
         ${c.keys[k].set ? `<button class="ghost sm" data-act="clear-key" data-val="${k}">Clear</button>` : ''}</div>`).join('')}
-      <div class="krow"><span class="lbl">AI model</span><input id="llmModel" value="${esc(c.llm.model)}" style="max-width:240px"></div>
+      <div class="krow"><span class="lbl">AI model</span><input id="llmModel" value="${esc(c.llm.model)}" style="max-width:240px" ${c.llmModelFromEnv ? 'disabled title="Set by GEMINI_MODEL in Render"' : ''}></div>${c.llmModelFromEnv ? '<div style="font-size:12px;color:#777;margin-top:-6px">Set by GEMINI_MODEL env var. Change it in Render, not here.</div>' : ''}
       ${Object.keys(c.sources).map(s => `<div class="krow"><label style="min-width:170px;font-weight:800"><input type="checkbox" data-src="${s}" ${c.sources[s]?'checked':''}> ${SOURCE_LABEL[s]||s}</label>
         <button class="ghost sm" data-act="test" data-val="${s}">Test</button><span class="count" id="test-${s}"></span></div>`).join('')}
       <div class="row end"><button class="black sm" data-act="save-config">Save</button></div>`;

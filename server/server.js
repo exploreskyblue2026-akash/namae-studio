@@ -50,7 +50,9 @@ function cfg() {
   for (const k of Object.keys(ENV_KEYS)) if (process.env[ENV_KEYS[k]]) keys[k] = process.env[ENV_KEYS[k]].trim();
   const sources = { ...db.config.sources };
   for (const [src, ks] of Object.entries(SOURCE_KEYS)) if (ks.every(k => keys[k])) sources[src] = true;
-  return { ...db.config, keys, sources };
+  const llm = { ...db.config.llm };
+  if (process.env.GEMINI_MODEL) llm.model = process.env.GEMINI_MODEL.trim();
+  return { ...db.config, keys, sources, llm };
 }
 const uiText = () => ({ ...C.UI_DEFAULT, ...db.config.uiText });
 const llmReady = () => { const c = cfg(); return !!(c.sources.llm && c.keys.gemini); };
@@ -279,7 +281,7 @@ app.get('/api/admin/logs', auth, adminOnly, (req, res) => {
 function configView() {
   const keys = {};
   Object.entries(cfg().keys).forEach(([k, v]) => { keys[k] = { set: !!v, hint: mask(v), fromEnv: !!process.env[ENV_KEYS[k]] }; });
-  return { keys, sources: cfg().sources, llm: db.config.llm, uiText: uiText(), llmReady: llmReady() };
+  return { keys, sources: cfg().sources, llm: cfg().llm, llmModelFromEnv: !!process.env.GEMINI_MODEL, uiText: uiText(), llmReady: llmReady() };
 }
 app.get('/api/admin/config', auth, adminOnly, (req, res) => res.json(configView()));
 
