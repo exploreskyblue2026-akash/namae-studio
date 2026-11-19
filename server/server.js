@@ -142,6 +142,20 @@ function generateFor(p, dir, count) {
   fresh.forEach(([n, m]) => addName(p, dir, n, m));
   return fresh.length;
 }
+// Falls back to AI-generated names when a direction's fixed catalog pool runs out.
+// Silently does nothing if the AI isn't connected, so the pool-only behaviour still works without a key.
+async function generateMoreFor(p, dir, count) {
+  const got = generateFor(p, dir, count);
+  const need = count - got;
+  if (need <= 0) return got;
+  if (!llmReady()) return got;
+  const d = C.dirs.find(x => x.id === dir); if (!d) return got;
+  const context = p.restatement || p.brief || '';
+  const avoid = p.names.map(x => x.n);
+  const pairs = await llm.generateNames(cfg(), d.label, context, avoid, need);
+  pairs.forEach(([n, m]) => addName(p, dir, n, m));
+  return got + pairs.length;
+}
 const nameOf = (p, id) => p.names.find(x => x.id === id);
 
 app.post('/api/projects', auth, (req, res) => {
@@ -194,11 +208,11 @@ app.post('/api/projects/:id/suggest', auth, async (req, res) => {
 });
 
 /* ---------- names ---------- */
-app.post('/api/projects/:id/names', auth, (req, res) => {
+app.post('/api/projects/:id/names', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const b = req.body || {};
-  if (b.action === 'generate') generateFor(p, b.dir, 3);
-  else if (b.action === 'more') p.dirs.forEach(d => generateFor(p, d, 2));
+  if (b.action === 'generate') await generateMoreFor(p, b.dir, 3);
+  else if (b.action === 'more') { for (const d of p.dirs) await generateMoreFor(p, d, 2); }
   else if (b.action === 'reshuffle') p.names.sort(() => Math.random() - 0.5);
   else if (b.action === 'own') {
     const n = String(b.n || '').trim().slice(0, 40);
@@ -233,7 +247,8 @@ app.post('/api/projects/:id/names/:nid/variations', auth, (req, res) => {
 app.post('/api/projects/:id/names/:nid/research', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const n = nameOf(p, req.params.nid); if (!n) return res.status(404).json({ error: 'Name not found' });
-  try { n.research = await research.run(n.n, cfg()); }
+  const context = p.restatement || p.brief || '';
+  try { n.research = await research.run(n.n, cfg(), llm, context); }
   catch (e) { return res.status(502).json({ error: 'Research failed: ' + e.message }); }
   save(); res.json(p);
 });

@@ -1,6 +1,7 @@
 'use strict';
 // Research runner. Each parameter has one adapter. Anything not connected returns Pending with a plain reason.
-// Only the RDAP domain check is a live adapter in this version.
+// Live adapters: RDAP domain check, and the three AI checks (sound, origin, similar) when a Gemini key is set.
+// EUIPO, USPTO, WhoisXML, and social remain placeholders pending real integrations.
 
 const LABEL = {
   sound: 'Sound & feel', origin: 'Origin & meaning', similar: 'Similar brands',
@@ -29,18 +30,23 @@ function gated(cfg, source, keyNames, id, label) {
   return pending(id, 'Key saved. Adapter not built yet.', label);
 }
 
-function aiGate(cfg, id) {
+async function aiCheck(cfg, llm, id, fn, name, context) {
   if (!cfg.sources.llm) return pending(id, 'AI check is off in Admin.', 'AI');
   if (!cfg.keys.gemini) return pending(id, 'Not connected. Add the AI key in Admin.', 'AI');
-  return pending(id, 'Key saved. Check not built yet.', 'AI');
+  try {
+    const { status, summary } = await fn(cfg, name, context || 'No business context given.');
+    return { id, label: LABEL[id], status, summary, source: 'AI' };
+  } catch (e) {
+    return pending(id, 'AI check failed: ' + e.message, 'AI');
+  }
 }
 
-async function run(name, cfg) {
+async function run(name, cfg, llm, context) {
   const results = [
     cfg.sources.rdap ? await rdap(name) : pending('domain', 'Source is off in Admin.', 'RDAP'),
-    aiGate(cfg, 'sound'),
-    aiGate(cfg, 'origin'),
-    aiGate(cfg, 'similar'),
+    await aiCheck(cfg, llm, 'sound', llm.checkSound, name, context),
+    await aiCheck(cfg, llm, 'origin', llm.checkOrigin, name, context),
+    await aiCheck(cfg, llm, 'similar', llm.checkSimilar, name, context),
     gated(cfg, 'euipo', ['euipo_client_id', 'euipo_client_secret'], 'trademark', 'EUIPO / USPTO'),
     pending('social', 'No social adapter yet.', 'Platforms')
   ];
