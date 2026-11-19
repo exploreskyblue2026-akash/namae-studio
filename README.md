@@ -10,7 +10,7 @@ npm install
 ADMIN_PASSWORD=choose-a-password npm start
 ```
 
-Open http://localhost:3000. The first start creates the admin user `admin@skyblue.local`. If `ADMIN_PASSWORD` is not set, the password is `change-me-now`.
+Open http://localhost:3000. The first start creates the admin user from `ADMIN_ID` (default `admin@skyblue.local`). If `ADMIN_PASSWORD` is not set, the password is `change-me-now`.
 
 ## Layout
 

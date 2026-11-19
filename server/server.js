@@ -21,9 +21,10 @@ const mask = v => (v ? '••••' + String(v).slice(-4) : '');
 function seed() {
   const salt = crypto.randomBytes(16).toString('hex');
   const pw = process.env.ADMIN_PASSWORD || 'change-me-now';
-  console.log(`First run. Admin login: admin@skyblue.local / ${pw}  (set ADMIN_PASSWORD before first start)`);
+  const email = (process.env.ADMIN_ID || 'admin@skyblue.local').trim().toLowerCase();
+  console.log(`First run. Admin login: ${email} / ${pw}  (set ADMIN_ID and ADMIN_PASSWORD before first start)`);
   return {
-    users: [{ id: 'u_admin', email: 'admin@skyblue.local', name: 'Admin', role: 'admin', active: true, salt, pwHash: hash(pw, salt), created: now() }],
+    users: [{ id: 'u_admin', email, name: 'Admin', role: 'admin', active: true, salt, pwHash: hash(pw, salt), created: now() }],
     sessions: {}, projects: [], logs: [],
     config: {
       keys: { gemini: '', euipo_client_id: '', euipo_client_secret: '', uspto: '', whoisxml: '' },
