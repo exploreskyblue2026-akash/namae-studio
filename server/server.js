@@ -249,15 +249,18 @@ app.post('/api/projects/:id/suggest', auth, async (req, res) => {
 app.post('/api/projects/:id/names', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const b = req.body || {};
-  if (b.action === 'generate') await generateMoreFor(p, b.dir, 3);
-  else if (b.action === 'more') await Promise.all(p.dirs.map(d => generateMoreFor(p, d, 2)));
+  if (b.action === 'generate') await generateMoreFor(p, b.dir, 4);
+  else if (b.action === 'more') await Promise.all(p.dirs.map(d => generateMoreFor(p, d, 3)));
   else if (b.action === 'regenerate') {
     // Always ask the AI fresh for the currently selected directions. Drops previously
     // AI-suggested names for those directions first (keeping anything the user has actually
     // acted on — kept/shortlisted/locked/rejected) so the page never shows stale/old output,
     // and generates a brand-new full batch every single time this is called.
     p.names = p.names.filter(x => !(x.status === 'suggested' && p.dirs.includes(x.dir)));
-    const perDir = Math.max(4, Math.round(10 / Math.max(1, p.dirs.length)));
+    // More directions are now available to pick from, so the per-direction count is capped a
+    // little lower as more get selected, but the floor is raised (5, not 4) and the overall
+    // target batch size is bigger (16, not 10) so a run gives noticeably more to choose from.
+    const perDir = Math.max(5, Math.round(16 / Math.max(1, p.dirs.length)));
     await Promise.all(p.dirs.map(d => generateMoreFor(p, d, perDir)));
   }
   else if (b.action === 'reshuffle') p.names.sort(() => Math.random() - 0.5);

@@ -37,6 +37,36 @@ const dirs = [
     ['Werkstatt', 'German: workshop.'],
     ['Taller', 'Spanish: workshop.'],
     ['Atelier', "French: an artist's studio."]
+  ]},
+  { id: 'realword', label: 'Real word', color: '#2FBF71', pool: [
+    ['Bloom', 'A real word for things opening up and growing.'],
+    ['Nimbus', 'A real word for a glowing cloud of light.'],
+    ['Haven', 'A real word for a safe, welcoming place.'],
+    ['Kindred', 'A real word for feeling closely connected.']
+  ]},
+  { id: 'descriptive', label: 'Descriptive', color: '#2E8BFF', pool: [
+    ['QuickCraft', 'Says plainly what it is: fast, hands-on making.'],
+    ['TrueMake', 'Says plainly what it is: honest, well-made things.'],
+    ['EasyShelf', 'Says plainly what it is: simple to store and use.'],
+    ['FreshStudio', 'Says plainly what it is: a new, lively workspace.']
+  ]},
+  { id: 'founder', label: 'Founder-style', color: '#FF6B6B', pool: [
+    ["Mira & Co.", 'A personal name paired with "& Co." for a classic, trusted feel.'],
+    ['House of Aro', 'A personal or invented name framed as a "house," like a design studio.'],
+    ["Theo's Workshop", "A first name plus what it does, warm and personal."],
+    ['Nora Lane', 'A name that reads like a person, grounded and approachable.']
+  ]},
+  { id: 'playful', label: 'Playful', color: '#FFB23E', pool: [
+    ['Wobblebee', 'A silly, bouncy sound that is hard not to smile at.'],
+    ['Snugmuffin', 'Cozy and a little absurd, built to be memorable.'],
+    ['Doodlehop', 'Sounds like movement and drawing at once, light and fun.'],
+    ['Puddlejump', 'An everyday playful image turned into a brand word.']
+  ]},
+  { id: 'minimal', label: 'Minimalist', color: '#4B4B4B', pool: [
+    ['Orin', 'One clean, short, invented syllable with no clutter.'],
+    ['Vael', 'A short, calm-sounding word that stays out of its own way.'],
+    ['Juno', 'Short, familiar-sounding, easy to say in any language.'],
+    ['Riso', 'A crisp two-syllable word with a clean, modern edge.']
   ]}
 ];
 

@@ -7,13 +7,17 @@ async function call(cfg, prompt, opts = {}) {
   if (!key) throw new Error('No AI key saved');
   const model = (cfg.llm && cfg.llm.model) || 'gemini-3.5-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const generationConfig = { temperature: opts.temperature ?? 1.0 };
+  // Forces the model to emit valid JSON with no surrounding markdown (code fences, bullet
+  // markers, bold-asterisks, etc.) - callers that parse a JSON array/object out of the reply
+  // pass this, since the free-text version occasionally wraps the JSON in something that breaks
+  // a plain JSON.parse (this was the actual cause of intermittent "not good" AI results: a
+  // parse failure silently fell back to the generic catalog pool instead of the AI's real answer).
+  if (opts.json) generationConfig.responseMimeType = 'application/json';
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: opts.temperature ?? 1.0 }
-    }),
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig }),
     signal: AbortSignal.timeout(opts.timeoutMs ?? 25000)
   });
   const j = await r.json().catch(() => ({}));
@@ -27,7 +31,7 @@ async function restate(cfg, text) {
 
 async function suggest(cfg, field, understanding) {
   const what = field === 'classes' ? 'trademark product or service areas' : 'target customer segments';
-  const text = await call(cfg, `Based on this business understanding, suggest 6 ${what} as a JSON array of short strings. Return only the JSON.\n\nUnderstanding: ${understanding}`);
+  const text = await call(cfg, `Based on this business understanding, suggest 6 ${what} as a JSON array of short strings. Return only the JSON.\n\nUnderstanding: ${understanding}`, { json: true });
   const m = text.match(/\[[\s\S]*\]/);
   if (!m) return [];
   try { return JSON.parse(m[0]).map(x => String(x).slice(0, 60)).slice(0, 8); }
@@ -39,7 +43,7 @@ async function ping(cfg) { return call(cfg, 'Reply with the word ok.'); }
 // Returns { status: 'Clear'|'Review', summary } by asking the model for strict JSON.
 // Throws on a network/API failure so the caller can fall back to Pending.
 async function checkJSON(cfg, prompt) {
-  const text = await call(cfg, prompt + '\n\nReply with ONLY a JSON object, no other text: {"status":"Clear" or "Review","summary":"one short plain sentence"}');
+  const text = await call(cfg, prompt + '\n\nReply with ONLY a JSON object, no other text: {"status":"Clear" or "Review","summary":"one short plain sentence"}', { json: true });
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error('AI reply was not JSON');
   const j = JSON.parse(m[0]);
@@ -81,7 +85,7 @@ async function checkSocialAI(cfg, name, context) {
 async function extractBrandMatches(cfg, name, hits) {
   const list = hits.map((h, i) => `${i + 1}. "${h.title}" - ${h.url}\n${(h.content || '').slice(0, 220)}`).join('\n\n');
   const prompt = `Web search results for the name "${name}":\n\n${list}\n\nLook at these results and decide which ones, if any, describe a REAL existing brand, company, or product actually named "${name}" or something extremely close to it - not just a page that happens to use the word, an unrelated meaning, or a person's name. For each real match found, give its name as actually used and the industry/category it's in, in a few words (e.g. "footwear", "software", "coffee shop").\nReply with ONLY a JSON object, no other text: {"matches":[{"name":"...","category":"..."}]} (empty array if no real brand/company match is found).`;
-  const text = await call(cfg, prompt);
+  const text = await call(cfg, prompt, { json: true });
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error('AI reply was not JSON');
   const j = JSON.parse(m[0]);
@@ -99,20 +103,25 @@ async function generateNames(cfg, dirLabel, context, avoid, count) {
   // A random seed phrase pushes the model off a deterministic/cached-feeling answer, since
   // the same business + direction would otherwise tend to produce the same obvious names.
   const seed = Math.random().toString(36).slice(2, 8);
-  const prompt = `Business: ${context}\nDirection/style: ${dirLabel}\nInvent ${count} brand-new, short, brandable names that fit this style and business. Be genuinely varied and creative, not the most obvious or generic option. Do not reuse any of these existing names: ${avoid.join(', ') || 'none'}. (Creativity seed: ${seed}; ignore this number, it is only to vary your output.)\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"one short sentence on the name's meaning or origin"}, ...]`;
-  try {
-    const text = await call(cfg, prompt, { temperature: 1.3 });
-    const m = text.match(/\[[\s\S]*\]/);
-    if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
-    const arr = JSON.parse(m[0]);
-    return arr
-      .map(x => [String(x.name || '').trim().slice(0, 40), String(x.meaning || '').trim().slice(0, 200)])
-      .filter(([n]) => n && !avoid.some(a => a.toLowerCase() === n.toLowerCase()))
-      .slice(0, count);
-  } catch (e) {
-    console.error('AI generateNames failed:', e.message);
-    return [];
+  const prompt = `Business: ${context}\nDirection/style: ${dirLabel}\nInvent ${count} brand-new, short, brandable names that fit this style and this specific business (not a generic placeholder business). Be genuinely varied and creative, not the most obvious or generic option. Do not reuse any of these existing names: ${avoid.join(', ') || 'none'}. (Creativity seed: ${seed}; ignore this number, it is only to vary your output.)\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"one short sentence on the name's meaning or origin"}, ...]`;
+  // One retry before giving up and falling back to the generic catalog pool - a transient
+  // timeout or an occasional malformed reply shouldn't be enough to drop to business-unrelated
+  // placeholder names when a second try almost always succeeds.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const text = await call(cfg, prompt, { temperature: 1.3, json: true, timeoutMs: 35000 });
+      const m = text.match(/\[[\s\S]*\]/);
+      if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
+      const arr = JSON.parse(m[0]);
+      return arr
+        .map(x => [String(x.name || '').trim().slice(0, 40), String(x.meaning || '').trim().slice(0, 200)])
+        .filter(([n]) => n && !avoid.some(a => a.toLowerCase() === n.toLowerCase()))
+        .slice(0, count);
+    } catch (e) {
+      console.error(`AI generateNames failed (attempt ${attempt + 1}/2):`, e.message);
+    }
   }
+  return [];
 }
 
 // Image generation via Gemini's native image model ("Nano Banana"). Imagen is retired; this is
@@ -148,16 +157,18 @@ async function generateVariations(cfg, name, meaning, kind, context) {
     : `Invent 4 variations of the brand name "${name}" (meaning: ${meaning}) by tweaking its spelling or sound — similar enough to still feel like the same name.`;
   const seed = Math.random().toString(36).slice(2, 8);
   const prompt = `Business: ${context || 'not specified'}\n${ask}\n(Creativity seed: ${seed}; ignore this number.)\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"one short sentence"}, ...]`;
-  try {
-    const text = await call(cfg, prompt, { temperature: 1.2 });
-    const m = text.match(/\[[\s\S]*\]/);
-    if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
-    const arr = JSON.parse(m[0]);
-    return arr.map(x => [String(x.name || '').trim().slice(0, 40), String(x.meaning || '').trim().slice(0, 200)]).filter(([n]) => n);
-  } catch (e) {
-    console.error('AI generateVariations failed:', e.message);
-    return [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const text = await call(cfg, prompt, { temperature: 1.2, json: true, timeoutMs: 30000 });
+      const m = text.match(/\[[\s\S]*\]/);
+      if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
+      const arr = JSON.parse(m[0]);
+      return arr.map(x => [String(x.name || '').trim().slice(0, 40), String(x.meaning || '').trim().slice(0, 200)]).filter(([n]) => n);
+    } catch (e) {
+      console.error(`AI generateVariations failed (attempt ${attempt + 1}/2):`, e.message);
+    }
   }
+  return [];
 }
 
 module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, checkDomainAI, checkTrademarkAI, checkSocialAI, extractBrandMatches, generateNames, generateImage, generateVariations };
