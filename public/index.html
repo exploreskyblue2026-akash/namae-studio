@@ -20,12 +20,13 @@ button,input,select,textarea{font:inherit;color:inherit}
 /* top */
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px}
 .brand{display:flex;align-items:center;gap:12px;min-width:0}
-.logo{width:50px;height:50px;flex:none;border-radius:6px;background:var(--azure);color:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900;font-size:11px;line-height:.9;text-transform:uppercase}
+.logo{width:50px;height:50px;flex:none;border-radius:6px;background:var(--azure);color:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900;font-size:11px;line-height:.9;text-transform:uppercase;overflow:hidden}
+.logo img{width:100%;height:100%;object-fit:cover}
 .title{font-weight:900;font-size:18px;color:var(--azure);font-stretch:125%}
 .projname{font-size:12px;color:var(--muted);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
 .tools{display:flex;gap:10px;align-items:center}
 .icon{width:44px;height:44px;border-radius:50%;border:1px solid var(--edge);background:#fff;display:grid;place-items:center;cursor:pointer;padding:0;min-height:0}
-.icon svg{width:19px;height:19px;stroke:var(--ink);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.icon svg{width:19px;height:19px;stroke:var(--azure);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .icon.plus{background:var(--azure);border-color:var(--azure)}
 .icon.plus svg{stroke:#fff}
 .icon.on{background:#EAF3FF;border-color:var(--azure)}
@@ -65,7 +66,7 @@ input,textarea,select{border:1.5px solid rgba(0,110,255,.3);border-radius:14px;p
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--azure);box-shadow:0 0 0 4px rgba(0,110,255,.15)}
 textarea{width:100%;min-height:130px;resize:vertical;font-size:16px;line-height:1.5;padding:14px 16px;background:rgba(255,255,255,.95)}
 .mic{width:46px;height:46px;min-height:0;padding:0;border-radius:50%;background:var(--pink);display:grid;place-items:center;box-shadow:0 0 0 4px rgba(255,62,165,.18)}
-.mic svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round}
+.mic svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:1.6;stroke-linecap:round}
 .mic.on{animation:pulse 1.2s ease-out infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,62,165,.55)}100%{box-shadow:0 0 0 18px rgba(255,62,165,0)}}
 .block{background:#fff;border:1px solid var(--edge);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
@@ -221,7 +222,7 @@ function render(){
   const onProject = ['brief','directions','names','detail','shortlist'].includes(S.view);
   $('#app').innerHTML = `
     <header class="card top">
-      <div class="brand"><div class="logo">SKY<br>BLUE</div>
+      <div class="brand"><div class="logo"><img src="assets/logo.png" alt="Sky Blue"></div>
         <div><div class="title">NAMAE STUDIO</div><div class="projname">${esc(p.name)}</div></div></div>
       <div class="tools">
         <button class="icon plus" data-act="new-project" title="New project" aria-label="New project">${ICON.plus}</button>

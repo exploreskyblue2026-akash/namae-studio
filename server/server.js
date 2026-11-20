@@ -135,6 +135,8 @@ function addName(p, dir, n, m, extra = {}) {
   };
   p.names.push(obj); return obj;
 }
+// Pool fallback: used only when the AI isn't connected, or the AI call fails/returns too few.
+// These are generic seed examples, not tailored to any specific brief.
 function generateFor(p, dir, count) {
   const d = C.dirs.find(x => x.id === dir); if (!d) return 0;
   const used = p.names.map(x => x.n.toLowerCase());
@@ -142,19 +144,22 @@ function generateFor(p, dir, count) {
   fresh.forEach(([n, m]) => addName(p, dir, n, m));
   return fresh.length;
 }
-// Falls back to AI-generated names when a direction's fixed catalog pool runs out.
-// Silently does nothing if the AI isn't connected, so the pool-only behaviour still works without a key.
+// Primary path: ask the AI to invent names tailored to this project's actual brief and the
+// chosen direction's style. Only drops to the generic catalog pool when the AI isn't connected
+// or returns fewer than asked for.
 async function generateMoreFor(p, dir, count) {
-  const got = generateFor(p, dir, count);
-  const need = count - got;
-  if (need <= 0) return got;
-  if (!llmReady()) return got;
-  const d = C.dirs.find(x => x.id === dir); if (!d) return got;
+  const d = C.dirs.find(x => x.id === dir); if (!d) return 0;
   const context = p.restatement || p.brief || '';
-  const avoid = p.names.map(x => x.n);
-  const pairs = await llm.generateNames(cfg(), d.label, context, avoid, need);
-  pairs.forEach(([n, m]) => addName(p, dir, n, m));
-  return got + pairs.length;
+  let got = 0;
+  if (llmReady()) {
+    const avoid = p.names.map(x => x.n);
+    const pairs = await llm.generateNames(cfg(), d.label, context, avoid, count);
+    pairs.forEach(([n, m]) => addName(p, dir, n, m));
+    got = pairs.length;
+  }
+  const need = count - got;
+  if (need > 0) got += generateFor(p, dir, need);
+  return got;
 }
 const nameOf = (p, id) => p.names.find(x => x.id === id);
 
@@ -165,7 +170,7 @@ app.post('/api/projects', auth, (req, res) => {
   db.projects.unshift(p); save(); res.json(p);
 });
 
-app.put('/api/projects/:id', auth, (req, res) => {
+app.put('/api/projects/:id', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const b = req.body || {};
   const before = p.dirs.slice();
@@ -173,7 +178,8 @@ app.put('/api/projects/:id', auth, (req, res) => {
     if (b[k] !== undefined) p[k] = b[k];
   });
   p.dirs = (Array.isArray(p.dirs) ? p.dirs : []).filter(d => C.dirs.some(x => x.id === d));
-  p.dirs.filter(d => !before.includes(d)).forEach(d => { if (!p.names.some(n => n.dir === d)) generateFor(p, d, 3); });
+  const newDirs = p.dirs.filter(d => !before.includes(d) && !p.names.some(n => n.dir === d));
+  for (const d of newDirs) await generateMoreFor(p, d, 3);
   save(); res.json(p);
 });
 
