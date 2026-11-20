@@ -201,13 +201,17 @@ app.post('/api/projects', auth, (req, res) => {
 app.put('/api/projects/:id', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const b = req.body || {};
-  const before = p.dirs.slice();
+  // Note: this route used to auto-generate 3 names the first time a direction was toggled on.
+  // That meant a direction only ever got named once, ever; if that one shot landed during an
+  // AI hiccup (wrong model, timeout) it fell back to the generic catalog pool, and — now that
+  // state persists in Postgres — those stale/generic names stuck around forever with no way to
+  // ever regenerate them. Toggling a direction here is just a selection now; actual generation
+  // happens explicitly via the 'regenerate' action below, triggered by the Names page's
+  // loading screen, so it always asks the AI fresh instead of silently reusing old results.
   ['name', 'brief', 'restatement', 'confirmed', 'restating', 'market', 'classes', 'segments', 'refs', 'dirs'].forEach(k => {
     if (b[k] !== undefined) p[k] = b[k];
   });
   p.dirs = (Array.isArray(p.dirs) ? p.dirs : []).filter(d => C.dirs.some(x => x.id === d));
-  const newDirs = p.dirs.filter(d => !before.includes(d) && !p.names.some(n => n.dir === d));
-  await Promise.all(newDirs.map(d => generateMoreFor(p, d, 3)));
   save(); res.json(p);
 });
 
@@ -247,6 +251,15 @@ app.post('/api/projects/:id/names', auth, async (req, res) => {
   const b = req.body || {};
   if (b.action === 'generate') await generateMoreFor(p, b.dir, 3);
   else if (b.action === 'more') await Promise.all(p.dirs.map(d => generateMoreFor(p, d, 2)));
+  else if (b.action === 'regenerate') {
+    // Always ask the AI fresh for the currently selected directions. Drops previously
+    // AI-suggested names for those directions first (keeping anything the user has actually
+    // acted on — kept/shortlisted/locked/rejected) so the page never shows stale/old output,
+    // and generates a brand-new full batch every single time this is called.
+    p.names = p.names.filter(x => !(x.status === 'suggested' && p.dirs.includes(x.dir)));
+    const perDir = Math.max(4, Math.round(10 / Math.max(1, p.dirs.length)));
+    await Promise.all(p.dirs.map(d => generateMoreFor(p, d, perDir)));
+  }
   else if (b.action === 'reshuffle') p.names.sort(() => Math.random() - 0.5);
   else if (b.action === 'own') {
     const n = String(b.n || '').trim().slice(0, 40);

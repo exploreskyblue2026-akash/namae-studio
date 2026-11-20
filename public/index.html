@@ -35,6 +35,9 @@ button,input,select,textarea{font:inherit;color:inherit}
 .busybar{position:fixed;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--azure),transparent);z-index:9999;animation:busysweep 1.3s ease-in-out infinite}
 .busytoast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:#0A0A0A;color:#fff;padding:8px 18px 8px 14px;border-radius:999px;font-size:13px;font-weight:700;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.25);white-space:nowrap;max-width:92vw}
 .thinkicon{flex:none;overflow:visible;color:#fff}
+.thinkicon.big{color:var(--azure)}
+.namesloading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;min-height:420px;text-align:center}
+.namesloading-msg{font-size:15px;font-weight:700;color:#444}
 .tw-dots{animation:tw-dotsvis 3.6s ease-in-out infinite}
 .tw-dot{animation:tw-dotbob 3.6s ease-in-out infinite}
 .tw-dot:nth-child(2){animation-delay:.1s}
@@ -199,7 +202,7 @@ const S = {
   token: localStorage.getItem('ns-token') || '', me: null, projects: [], currentId: null,
   catalog: {dirs:[], markets:[], classes:[], segments:[], params:[]}, uiText: {}, llmReady: false,
   view: 'login', selected: null, libMode: 'projects', accTab: 'profile', adminTab: 'users',
-  admin: { users: [], logs: [], logUser: '', config: null }, busy: false, busyMsg: ''
+  admin: { users: [], logs: [], logUser: '', config: null }, busy: false, busyMsg: '', namesLoading: false
 };
 let rec = null, listening = false;
 
@@ -251,7 +254,7 @@ function render(){
   const admin = S.me && S.me.role === 'admin';
   const onProject = ['brief','directions','names','detail','shortlist'].includes(S.view);
   $('#app').innerHTML = `
-    ${S.busy ? `<div class="busybar"></div><div class="busytoast"><svg class="thinkicon" width="26" height="26" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g class="tw-dots"><circle class="tw-dot" cx="9" cy="5" r="1.5"/><circle class="tw-dot" cx="15" cy="5" r="1.5"/><circle class="tw-dot" cx="21" cy="5" r="1.5"/></g><line class="tw-line" x1="6" y1="29" x2="28" y2="29"/><g class="tw-pencil"><path d="M0,-11 L4,-11 L4,3 L2,8 L0,3 Z"/><line x1="0" y1="-6" x2="4" y2="-6"/></g></svg><span>${esc((S.busyMsg||'Working').replace(/[.…\s]+$/,''))}<span class="busydots"><span>.</span><span>.</span><span>.</span></span></span></div>` : ''}
+    ${(S.busy && !S.namesLoading) ? `<div class="busybar"></div><div class="busytoast"><svg class="thinkicon" width="26" height="26" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g class="tw-dots"><circle class="tw-dot" cx="9" cy="5" r="1.5"/><circle class="tw-dot" cx="15" cy="5" r="1.5"/><circle class="tw-dot" cx="21" cy="5" r="1.5"/></g><line class="tw-line" x1="6" y1="29" x2="28" y2="29"/><g class="tw-pencil"><path d="M0,-11 L4,-11 L4,3 L2,8 L0,3 Z"/><line x1="0" y1="-6" x2="4" y2="-6"/></g></svg><span>${esc((S.busyMsg||'Working').replace(/[.…\s]+$/,''))}<span class="busydots"><span>.</span><span>.</span><span>.</span></span></span></div>` : ''}
     <header class="card top">
       <div class="brand"><div class="logo"><img src="assets/logo.png" alt="Sky Blue"></div>
         <div><div class="title">NAMAE STUDIO</div><div class="projname">${esc(p.name)}</div></div></div>
@@ -347,11 +350,20 @@ views.directions = () => {
       <button class="dtile ${on?'on':''}" style="--c:${d.color}" data-act="dir" data-id="${d.id}" aria-pressed="${on}">${esc(d.label)}</button>`; }).join('')}</div>
     <div class="bar">
       <button class="ghost" data-act="view" data-view="brief">←</button>
-      <button class="black" data-act="view" data-view="names" ${p.dirs.length?'':'disabled'}>Next →</button></div>`;
+      <button class="black" data-act="goto-names" ${p.dirs.length?'':'disabled'}>Next →</button></div>`;
 };
 
 /* ---- Names (full width) ---- */
 views.names = () => {
+  if (S.namesLoading) return `
+    <div class="namesloading">
+      <svg class="thinkicon big" width="64" height="64" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <g class="tw-dots"><circle class="tw-dot" cx="9" cy="5" r="1.5"/><circle class="tw-dot" cx="15" cy="5" r="1.5"/><circle class="tw-dot" cx="21" cy="5" r="1.5"/></g>
+        <line class="tw-line" x1="6" y1="29" x2="28" y2="29"/>
+        <g class="tw-pencil"><path d="M0,-11 L4,-11 L4,3 L2,8 L0,3 Z"/><line x1="0" y1="-6" x2="4" y2="-6"/></g>
+      </svg>
+      <div class="namesloading-msg">Generating fresh names for your brief<span class="busydots"><span>.</span><span>.</span><span>.</span></span></div>
+    </div>`;
   const list = suggestions();
   return `
     <div class="row"><h1 class="display">${T('names_title')}</h1><span class="grow"></span>
@@ -539,6 +551,13 @@ async function doAct(a, t){
   const save = body => api('PUT', `/projects/${p.id}`, body).then(upsert);
   switch (a) {
     case 'view': S.view = t.dataset.view; if (S.view !== 'detail') S.selected = S.selected; break;
+    case 'goto-names': {
+      S.view = 'names'; S.namesLoading = true; render();
+      try { upsert(await api('POST', `/projects/${p.id}/names`, {action:'regenerate'})); }
+      catch(e) { toast(e.message); }
+      S.namesLoading = false;
+      break;
+    }
     case 'mic': return toggleMic();
     case 'understand': {
       const r = await api('POST', `/projects/${p.id}/understand`, {text: p.brief});
@@ -654,9 +673,9 @@ async function doAct(a, t){
 
 /* ============ events ============ */
 const BUSY_MSG = {
-  dir: 'Generating names…', reshuffle: 'Shuffling…', more: 'Generating more names…',
+  dir: 'Saving…', reshuffle: 'Shuffling…', more: 'Generating more names…',
   research: 'Running research…', visualise: 'Generating image…',
-  understand: 'Thinking…', confirm: 'Getting suggestions…'
+  understand: 'Thinking…', confirm: 'Getting suggestions…', 'goto-names': 'Generating names…'
 };
 document.addEventListener('click', e => {
   if (S.busy) return;
