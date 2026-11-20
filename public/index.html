@@ -34,34 +34,15 @@ button,input,select,textarea{font:inherit;color:inherit}
 .icon:hover,.avatar:hover{transform:translateY(-2px)}
 .busybar{position:fixed;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--azure),transparent);z-index:9999;animation:busysweep 1.3s ease-in-out infinite}
 .busytoast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:#0A0A0A;color:#fff;padding:8px 18px 8px 14px;border-radius:999px;font-size:13px;font-weight:700;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.25);white-space:nowrap;max-width:92vw}
-.thinkicon{flex:none;overflow:visible;color:#fff}
-.thinkicon.big{color:var(--azure)}
-.namesloading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;min-height:420px;text-align:center}
+.thinkicon{flex:none;object-fit:contain}
+.namesloading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:420px;text-align:center}
 .namesloading-msg{font-size:15px;font-weight:700;color:#444}
-.tw-dots{animation:tw-dotsvis 3.6s ease-in-out infinite}
-.tw-dot{animation:tw-dotbob 3.6s ease-in-out infinite}
-.tw-dot:nth-child(2){animation-delay:.1s}
-.tw-dot:nth-child(3){animation-delay:.2s}
-.tw-line{stroke-dasharray:24;animation:tw-linedraw 3.6s ease-in-out infinite}
-.tw-pencil{animation:tw-pencilmove 3.6s ease-in-out infinite;transform-origin:2px 8px}
 .busydots span{animation:dotfade 1.3s ease-in-out infinite;opacity:.25}
 .busydots span:nth-child(1){animation-delay:0s}
 .busydots span:nth-child(2){animation-delay:.2s}
 .busydots span:nth-child(3){animation-delay:.4s}
 @keyframes busysweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
 @keyframes dotfade{0%,80%,100%{opacity:.25}40%{opacity:1}}
-@keyframes tw-dotsvis{0%,28%{opacity:1}38%,88%{opacity:0}98%,100%{opacity:1}}
-@keyframes tw-dotbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2.5px)}}
-@keyframes tw-linedraw{0%,44%{stroke-dashoffset:24;opacity:0}50%{opacity:1}90%{stroke-dashoffset:0;opacity:1}96%,100%{opacity:0;stroke-dashoffset:24}}
-@keyframes tw-pencilmove{
-  0%,28%{transform:translate(13px,9px) rotate(10deg)}
-  34%{transform:translate(13px,9px) rotate(-6deg)}
-  44%{transform:translate(6px,21px) rotate(-55deg)}
-  50%{transform:translate(8px,21px) rotate(-50deg)}
-  90%{transform:translate(27px,21px) rotate(-50deg)}
-  96%{transform:translate(27px,17px) rotate(-25deg)}
-  100%{transform:translate(13px,9px) rotate(10deg)}
-}
 
 /* buttons */
 button{border:0;border-radius:999px;padding:9px 16px;font-weight:800;cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.04em;min-height:38px;transition:transform .15s,box-shadow .15s,background .15s}
@@ -254,7 +235,7 @@ function render(){
   const admin = S.me && S.me.role === 'admin';
   const onProject = ['brief','directions','names','detail','shortlist'].includes(S.view);
   $('#app').innerHTML = `
-    ${(S.busy && !S.namesLoading) ? `<div class="busybar"></div><div class="busytoast"><svg class="thinkicon" width="26" height="26" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g class="tw-dots"><circle class="tw-dot" cx="9" cy="5" r="1.5"/><circle class="tw-dot" cx="15" cy="5" r="1.5"/><circle class="tw-dot" cx="21" cy="5" r="1.5"/></g><line class="tw-line" x1="6" y1="29" x2="28" y2="29"/><g class="tw-pencil"><path d="M0,-11 L4,-11 L4,3 L2,8 L0,3 Z"/><line x1="0" y1="-6" x2="4" y2="-6"/></g></svg><span>${esc((S.busyMsg||'Working').replace(/[.…\s]+$/,''))}<span class="busydots"><span>.</span><span>.</span><span>.</span></span></span></div>` : ''}
+    ${(S.busy && !S.namesLoading) ? `<div class="busybar"></div><div class="busytoast"><img class="thinkicon" src="assets/loading-pencil.gif" width="26" height="26" alt=""><span>${esc((S.busyMsg||'Working').replace(/[.…\s]+$/,''))}<span class="busydots"><span>.</span><span>.</span><span>.</span></span></span></div>` : ''}
     <header class="card top">
       <div class="brand"><div class="logo"><img src="assets/logo.png" alt="Sky Blue"></div>
         <div><div class="title">NAMAE STUDIO</div><div class="projname">${esc(p.name)}</div></div></div>
@@ -357,11 +338,7 @@ views.directions = () => {
 views.names = () => {
   if (S.namesLoading) return `
     <div class="namesloading">
-      <svg class="thinkicon big" width="64" height="64" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <g class="tw-dots"><circle class="tw-dot" cx="9" cy="5" r="1.5"/><circle class="tw-dot" cx="15" cy="5" r="1.5"/><circle class="tw-dot" cx="21" cy="5" r="1.5"/></g>
-        <line class="tw-line" x1="6" y1="29" x2="28" y2="29"/>
-        <g class="tw-pencil"><path d="M0,-11 L4,-11 L4,3 L2,8 L0,3 Z"/><line x1="0" y1="-6" x2="4" y2="-6"/></g>
-      </svg>
+      <img class="thinkicon big" src="assets/loading-pencil.gif" width="72" height="72" alt="">
       <div class="namesloading-msg">Generating fresh names for your brief<span class="busydots"><span>.</span><span>.</span><span>.</span></span></div>
     </div>`;
   const list = suggestions();
