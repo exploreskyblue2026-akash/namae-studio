@@ -52,6 +52,8 @@ function cfg() {
   for (const [src, ks] of Object.entries(SOURCE_KEYS)) if (ks.every(k => keys[k])) sources[src] = true;
   const llm = { ...db.config.llm };
   if (process.env.GEMINI_MODEL) llm.model = process.env.GEMINI_MODEL.trim();
+  if (process.env.GEMINI_IMAGE_MODEL) llm.imageModel = process.env.GEMINI_IMAGE_MODEL.trim();
+  else if (!llm.imageModel) llm.imageModel = 'gemini-2.5-flash-image';
   return { ...db.config, keys, sources, llm };
 }
 const uiText = () => ({ ...C.UI_DEFAULT, ...db.config.uiText });
@@ -131,7 +133,7 @@ function addName(p, dir, n, m, extra = {}) {
   const d = C.dirs.find(x => x.id === dir);
   const obj = {
     id: uid('n'), dir, dirLabel: d ? d.label : 'Your names', color: d ? d.color : '#000',
-    n, m, status: 'suggested', visual: '', variants: [], research: null, ...extra
+    n, m, status: 'suggested', visual: '', visualImage: '', visualError: '', variants: [], research: null, ...extra
   };
   p.names.push(obj); return obj;
 }
@@ -179,7 +181,7 @@ app.put('/api/projects/:id', auth, async (req, res) => {
   });
   p.dirs = (Array.isArray(p.dirs) ? p.dirs : []).filter(d => C.dirs.some(x => x.id === d));
   const newDirs = p.dirs.filter(d => !before.includes(d) && !p.names.some(n => n.dir === d));
-  for (const d of newDirs) await generateMoreFor(p, d, 3);
+  await Promise.all(newDirs.map(d => generateMoreFor(p, d, 3)));
   save(); res.json(p);
 });
 
@@ -218,7 +220,7 @@ app.post('/api/projects/:id/names', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const b = req.body || {};
   if (b.action === 'generate') await generateMoreFor(p, b.dir, 3);
-  else if (b.action === 'more') { for (const d of p.dirs) await generateMoreFor(p, d, 2); }
+  else if (b.action === 'more') await Promise.all(p.dirs.map(d => generateMoreFor(p, d, 2)));
   else if (b.action === 'reshuffle') p.names.sort(() => Math.random() - 0.5);
   else if (b.action === 'own') {
     const n = String(b.n || '').trim().slice(0, 40);
@@ -256,6 +258,25 @@ app.post('/api/projects/:id/names/:nid/research', auth, async (req, res) => {
   const context = p.restatement || p.brief || '';
   try { n.research = await research.run(n.n, cfg(), llm, context); }
   catch (e) { return res.status(502).json({ error: 'Research failed: ' + e.message }); }
+  save(); res.json(p);
+});
+
+app.post('/api/projects/:id/names/:nid/visualise', auth, async (req, res) => {
+  const p = ownProject(req, res); if (!p) return;
+  const n = nameOf(p, req.params.nid); if (!n) return res.status(404).json({ error: 'Name not found' });
+  const style = String((req.body || {}).style || '').trim().slice(0, 200);
+  n.visual = style;
+  n.visualError = '';
+  if (!llmReady()) { n.visualError = 'AI is not connected. Add a Gemini key in Admin.'; save(); return res.json(p); }
+  const context = p.restatement || p.brief || '';
+  const prompt = `Create a single clean brand visual / logo concept image for a brand named "${n.n}" (${n.m}). Business: ${context || 'not specified'}. Visual style: ${style || 'modern, minimal, professional'}. The image should look like a brand mark or mood board tile: no surrounding text or mockup frame, just the visual itself.`;
+  try {
+    n.visualImage = await llm.generateImage(cfg(), prompt);
+  } catch (e) {
+    n.visualImage = '';
+    n.visualError = e.message;
+    console.error('Image generation failed:', e.message);
+  }
   save(); res.json(p);
 });
 

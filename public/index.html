@@ -20,8 +20,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 /* top */
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px}
 .brand{display:flex;align-items:center;gap:12px;min-width:0}
-.logo{width:50px;height:50px;flex:none;border-radius:6px;background:var(--azure);color:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900;font-size:11px;line-height:.9;text-transform:uppercase;overflow:hidden}
-.logo img{width:100%;height:100%;object-fit:cover}
+.logo{width:50px;height:50px;flex:none;border-radius:6px;background:var(--azure);color:#fff;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:900;font-size:11px;line-height:.9;text-transform:uppercase;overflow:hidden;aspect-ratio:1/1}
+.logo img{width:100%;height:100%;object-fit:contain}
 .title{font-weight:900;font-size:18px;color:var(--azure);font-stretch:125%}
 .projname{font-size:12px;color:var(--muted);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
 .tools{display:flex;gap:10px;align-items:center}
@@ -32,6 +32,9 @@ button,input,select,textarea{font:inherit;color:inherit}
 .icon.on{background:#EAF3FF;border-color:var(--azure)}
 .avatar{width:44px;height:44px;border-radius:50%;border:0;background:var(--pink);color:#fff;font-weight:900;cursor:pointer;padding:0;min-height:0}
 .icon:hover,.avatar:hover{transform:translateY(-2px)}
+.busybar{position:fixed;top:0;left:0;right:0;height:3px;background:var(--azure);z-index:9999;animation:busypulse 1.1s ease-in-out infinite;transform-origin:left}
+.busytoast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#0A0A0A;color:#fff;padding:9px 18px;border-radius:999px;font-size:13px;font-weight:700;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+@keyframes busypulse{0%{transform:scaleX(0);opacity:.6}50%{transform:scaleX(.7);opacity:1}100%{transform:scaleX(1);opacity:.2}}
 
 /* buttons */
 button{border:0;border-radius:999px;padding:9px 16px;font-weight:800;cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.04em;min-height:38px;transition:transform .15s,box-shadow .15s,background .15s}
@@ -110,6 +113,9 @@ textarea{width:100%;min-height:130px;resize:vertical;font-size:16px;line-height:
 .hero .mean{font-size:15px;color:var(--muted)}
 .var{background:#fff;border:1.5px solid var(--pink);color:var(--ink);padding:8px 14px;font-weight:900;font-stretch:112%;text-transform:none;letter-spacing:0;min-height:0;font-size:14px}
 .preview{border-radius:14px;min-height:90px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#EAF3FF,#FFF0F8);font-size:34px;font-weight:900;font-stretch:118%;word-break:break-word;padding:10px;text-align:center}
+.preview.img{padding:0;overflow:hidden;background:#fff}
+.preview.img img{width:100%;height:100%;object-fit:cover;border-radius:14px}
+.preview.err{background:#FFF0F0;color:var(--red);font-size:13px;font-weight:600;text-transform:none;font-stretch:normal}
 .verdict{font-size:44px;font-weight:900;font-stretch:125%;line-height:1;padding:4px 0}
 .verdict.Go{color:var(--green)}.verdict.Check{color:#8A6A00}.verdict.Stop{color:var(--red)}
 .ptiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -169,7 +175,7 @@ const S = {
   token: localStorage.getItem('ns-token') || '', me: null, projects: [], currentId: null,
   catalog: {dirs:[], markets:[], classes:[], segments:[], params:[]}, uiText: {}, llmReady: false,
   view: 'login', selected: null, libMode: 'projects', accTab: 'profile', adminTab: 'users',
-  admin: { users: [], logs: [], logUser: '', config: null }
+  admin: { users: [], logs: [], logUser: '', config: null }, busy: false, busyMsg: ''
 };
 let rec = null, listening = false;
 
@@ -200,7 +206,7 @@ async function api(method, path, body){
   if (!r.ok) throw new Error(j.error || 'Something went wrong');
   return j;
 }
-async function act(fn){ try { await fn(); } catch(e) { toast(e.message); } render(); }
+async function act(fn, msg){ S.busy = true; S.busyMsg = msg || 'Working…'; render(); try { await fn(); } catch(e) { toast(e.message); } S.busy = false; render(); }
 
 /* ============ boot ============ */
 async function boot(){
@@ -221,6 +227,7 @@ function render(){
   const admin = S.me && S.me.role === 'admin';
   const onProject = ['brief','directions','names','detail','shortlist'].includes(S.view);
   $('#app').innerHTML = `
+    ${S.busy ? `<div class="busybar"></div><div class="busytoast">${esc(S.busyMsg)}</div>` : ''}
     <header class="card top">
       <div class="brand"><div class="logo"><img src="assets/logo.png" alt="Sky Blue"></div>
         <div><div class="title">NAMAE STUDIO</div><div class="projname">${esc(p.name)}</div></div></div>
@@ -350,7 +357,9 @@ views.detail = () => {
         <div class="chips">${(n.variants||[]).map(v => `<button class="var" data-act="open-variant" data-val="${esc(v)}">${esc(v)}</button>`).join('')}</div></div>
       <div class="block"><span class="lbl">Visual</span>
         <div class="inline"><input id="visdir" value="${esc(n.visual)}" placeholder="Style" style="flex:1"><button class="ghost sm" data-act="visualise">Go</button></div>
-        ${n.visual ? `<div class="preview">${esc(n.n)}</div>` : ''}</div>
+        ${n.visualImage ? `<div class="preview img"><img src="${esc(n.visualImage)}" alt="${esc(n.n)} visual"></div>`
+          : n.visualError ? `<div class="preview err">${esc(n.visualError)}</div>`
+          : n.visual ? `<div class="preview">${esc(n.n)}</div>` : ''}</div>
     </div>
     <div class="block"><div class="row"><span class="lbl">${T('research_title')}</span><span class="grow"></span>
       <button class="black sm" data-act="research">${r ? 'Run again' : 'Run'}</button></div>
@@ -568,8 +577,8 @@ async function doAct(a, t){
     case 'similar': case 'newel':
       upsert(await api('POST', `/projects/${p.id}/names/${S.selected}/variations`, {kind: a==='newel'?'new':'similar'})); break;
     case 'visualise':
-      upsert(await api('PATCH', `/projects/${p.id}/names/${S.selected}`, {visual: $('#visdir').value.trim()})); break;
-    case 'research': toast('Running research…'); upsert(await api('POST', `/projects/${p.id}/names/${S.selected}/research`)); break;
+      upsert(await api('POST', `/projects/${p.id}/names/${S.selected}/visualise`, {style: $('#visdir').value.trim()})); break;
+    case 'research': upsert(await api('POST', `/projects/${p.id}/names/${S.selected}/research`)); break;
     case 'set-status': {
       const v = t.dataset.val;
       upsert(await api('PATCH', `/projects/${p.id}/names/${S.selected}`, {status:v}));
@@ -620,11 +629,17 @@ async function doAct(a, t){
 }
 
 /* ============ events ============ */
+const BUSY_MSG = {
+  dir: 'Generating names…', reshuffle: 'Shuffling…', more: 'Generating more names…',
+  research: 'Running research…', visualise: 'Generating image…',
+  understand: 'Thinking…', confirm: 'Getting suggestions…'
+};
 document.addEventListener('click', e => {
+  if (S.busy) return;
   const t = e.target.closest('[data-act]');
   if (!t || t.disabled) return;
   if (t.dataset.act === 'open-project' && t.tagName === 'ARTICLE' && e.detail === 0) {}
-  act(() => doAct(t.dataset.act, t));
+  act(() => doAct(t.dataset.act, t), BUSY_MSG[t.dataset.act]);
 });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;

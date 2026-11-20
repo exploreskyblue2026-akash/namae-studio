@@ -42,11 +42,17 @@ async function aiCheck(cfg, llm, id, fn, name, context) {
 }
 
 async function run(name, cfg, llm, context) {
+  // Run the domain lookup and the three independent AI checks in parallel instead of one
+  // after another — four separate network round-trips in sequence is the main reason research
+  // felt slow; in parallel it takes roughly as long as the single slowest check.
+  const [domainResult, sound, origin, similar] = await Promise.all([
+    cfg.sources.rdap ? rdap(name) : Promise.resolve(pending('domain', 'Source is off in Admin.', 'RDAP')),
+    aiCheck(cfg, llm, 'sound', llm.checkSound, name, context),
+    aiCheck(cfg, llm, 'origin', llm.checkOrigin, name, context),
+    aiCheck(cfg, llm, 'similar', llm.checkSimilar, name, context)
+  ]);
   const results = [
-    cfg.sources.rdap ? await rdap(name) : pending('domain', 'Source is off in Admin.', 'RDAP'),
-    await aiCheck(cfg, llm, 'sound', llm.checkSound, name, context),
-    await aiCheck(cfg, llm, 'origin', llm.checkOrigin, name, context),
-    await aiCheck(cfg, llm, 'similar', llm.checkSimilar, name, context),
+    domainResult, sound, origin, similar,
     gated(cfg, 'euipo', ['euipo_client_id', 'euipo_client_secret'], 'trademark', 'EUIPO / USPTO'),
     pending('social', 'No social adapter yet.', 'Platforms')
   ];

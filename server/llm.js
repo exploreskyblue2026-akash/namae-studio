@@ -1,7 +1,8 @@
 'use strict';
-// AI adapter (Google Gemini REST). Model names change over time: set the model in Admin → Connections.
+// AI adapter (Google Gemini REST). Model names change over time: set the model in Admin → Connections,
+// or GEMINI_MODEL / GEMINI_IMAGE_MODEL env vars (env vars survive free-tier restarts; Admin settings don't).
 
-async function call(cfg, prompt) {
+async function call(cfg, prompt, opts = {}) {
   const key = cfg.keys.gemini;
   if (!key) throw new Error('No AI key saved');
   const model = (cfg.llm && cfg.llm.model) || 'gemini-3.8-flash';
@@ -9,8 +10,11 @@ async function call(cfg, prompt) {
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-    signal: AbortSignal.timeout(20000)
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: opts.temperature ?? 1.0 }
+    }),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 15000)
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message || `AI returned ${r.status}`);
@@ -56,19 +60,50 @@ async function checkSimilar(cfg, name, context) {
 }
 
 // Generates fresh on-brand name candidates when the fixed catalog pool runs out.
-// Returns an array of [name, meaning] pairs, or [] on any failure (caller falls back silently).
+// Returns an array of [name, meaning] pairs, or [] on any failure (caller falls back silently,
+// but the error is logged server-side so a persistent failure shows up in the Render logs).
 async function generateNames(cfg, dirLabel, context, avoid, count) {
-  const prompt = `Business: ${context}\nDirection/style: ${dirLabel}\nInvent ${count} brand-new, short, brandable names that fit this style and business. Do not reuse any of these existing names: ${avoid.join(', ') || 'none'}.\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"one short sentence on the name's meaning or origin"}, ...]`;
+  // A random seed phrase pushes the model off a deterministic/cached-feeling answer, since
+  // the same business + direction would otherwise tend to produce the same obvious names.
+  const seed = Math.random().toString(36).slice(2, 8);
+  const prompt = `Business: ${context}\nDirection/style: ${dirLabel}\nInvent ${count} brand-new, short, brandable names that fit this style and business. Be genuinely varied and creative, not the most obvious or generic option. Do not reuse any of these existing names: ${avoid.join(', ') || 'none'}. (Creativity seed: ${seed}; ignore this number, it is only to vary your output.)\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"one short sentence on the name's meaning or origin"}, ...]`;
   try {
-    const text = await call(cfg, prompt);
+    const text = await call(cfg, prompt, { temperature: 1.3 });
     const m = text.match(/\[[\s\S]*\]/);
-    if (!m) return [];
+    if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
     const arr = JSON.parse(m[0]);
     return arr
       .map(x => [String(x.name || '').trim().slice(0, 40), String(x.meaning || '').trim().slice(0, 200)])
       .filter(([n]) => n && !avoid.some(a => a.toLowerCase() === n.toLowerCase()))
       .slice(0, count);
-  } catch (e) { return []; }
+  } catch (e) {
+    console.error('AI generateNames failed:', e.message);
+    return [];
+  }
 }
 
-module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, generateNames };
+// Image generation via Gemini's native image model ("Nano Banana"). Imagen is retired; this is
+// the current replacement, reached through the same generateContent endpoint and API key.
+async function generateImage(cfg, prompt) {
+  const key = cfg.keys.gemini;
+  if (!key) throw new Error('No AI key saved');
+  const model = (cfg.llm && cfg.llm.imageModel) || 'gemini-2.5-flash-image';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+    }),
+    signal: AbortSignal.timeout(30000)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.message || `Image AI returned ${r.status}`);
+  const parts = j.candidates?.[0]?.content?.parts || [];
+  const img = parts.find(p => p.inlineData && p.inlineData.data);
+  if (!img) throw new Error('No image returned by the model');
+  return `data:${img.inlineData.mimeType || 'image/png'};base64,${img.inlineData.data}`;
+}
+
+module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, generateNames, generateImage };

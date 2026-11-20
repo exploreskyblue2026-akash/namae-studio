@@ -34,6 +34,7 @@ Open http://localhost:3000. The first start creates the admin user from `ADMIN_I
 | `ADMIN_PASSWORD` | Admin login password (default `change-me-now`; set this) |
 | `GEMINI_API_KEY` | AI: restates the brief, suggests classes/segments, checks sound, origin, similar brands |
 | `GEMINI_MODEL` | AI model name to use (optional; defaults to `gemini-3.8-flash`). Overrides the model saved in Admin, and persists across restarts. |
+| `GEMINI_IMAGE_MODEL` | Image model for the name-detail Visual box (optional; defaults to `gemini-2.5-flash-image`, Google's "Nano Banana" model — Imagen is retired). |
 | `EUIPO_CLIENT_ID`, `EUIPO_CLIENT_SECRET` | EU trademark check (adapter still placeholder) |
 | `USPTO_API_KEY` | US trademark check (adapter still placeholder) |
 | `WHOISXML_API_KEY` | Domain and social checks (adapter still placeholder) |
