@@ -5,7 +5,7 @@
 async function call(cfg, prompt, opts = {}) {
   const key = cfg.keys.gemini;
   if (!key) throw new Error('No AI key saved');
-  const model = (cfg.llm && cfg.llm.model) || 'gemini-3.8-flash';
+  const model = (cfg.llm && cfg.llm.model) || 'gemini-2.5-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
   const r = await fetch(url, {
     method: 'POST',
@@ -14,7 +14,7 @@ async function call(cfg, prompt, opts = {}) {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: opts.temperature ?? 1.0 }
     }),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 15000)
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 25000)
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message || `AI returned ${r.status}`);

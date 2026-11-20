@@ -34,7 +34,7 @@ Open http://localhost:3000. The first start creates the admin user from `ADMIN_I
 | `ADMIN_ID` | Admin login email (default `admin@skyblue.local`) |
 | `ADMIN_PASSWORD` | Admin login password (default `change-me-now`; set this) |
 | `GEMINI_API_KEY` | AI: restates the brief, suggests classes/segments, checks sound, origin, similar brands |
-| `GEMINI_MODEL` | AI model name to use (optional; defaults to `gemini-3.8-flash`). Overrides the model saved in Admin, and persists across restarts. |
+| `GEMINI_MODEL` | AI model name to use (optional; defaults to `gemini-2.5-flash-lite` — the cheapest, fastest Gemini model, chosen to avoid timeouts on Render's free tier). Overrides the model saved in Admin, and persists across restarts. A "thinking" model like `gemini-3.x-flash` (non-lite) is slower and costs more per call; use it only if you need noticeably better name/image quality and don't mind the extra latency and cost. |
 | `GEMINI_IMAGE_MODEL` | Image model for the name-detail Visual box (optional; defaults to `gemini-2.5-flash-image`, Google's "Nano Banana" model — Imagen is retired). |
 | `EUIPO_CLIENT_ID`, `EUIPO_CLIENT_SECRET` | EU trademark check (adapter still placeholder) |
 | `USPTO_API_KEY` | US trademark check (adapter still placeholder) |

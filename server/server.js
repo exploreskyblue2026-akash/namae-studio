@@ -49,7 +49,7 @@ function seed() {
     config: {
       keys: { gemini: '', euipo_client_id: '', euipo_client_secret: '', uspto: '', whoisxml: '' },
       sources: { rdap: true, euipo: false, uspto: false, whoisxml: false, llm: false },
-      llm: { model: 'gemini-3.8-flash' },
+      llm: { model: 'gemini-2.5-flash-lite' },
       uiText: {}
     }
   };
