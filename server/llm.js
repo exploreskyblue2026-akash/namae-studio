@@ -74,6 +74,24 @@ async function checkSocialAI(cfg, name, context) {
   return checkJSON(cfg, `Brand name: "${name}". Business: ${context}\nFrom your knowledge, is "${name}" likely already a well-known, widely-used handle or account name on major social platforms (Instagram, X, TikTok)? Say "Review" only if you recognize it as an existing well-known account; otherwise say "Clear" and note that handle availability still needs a live check. This is a knowledge-based opinion, not a live platform check.`);
 }
 
+// Reads real Tavily search-result snippets and picks out which ones, if any, actually describe
+// an existing brand/company/product by this name - and what category it's in - instead of just
+// reporting "found a page mentioning this word." Throws on failure so the caller can fall back
+// to listing the raw search hits instead.
+async function extractBrandMatches(cfg, name, hits) {
+  const list = hits.map((h, i) => `${i + 1}. "${h.title}" - ${h.url}\n${(h.content || '').slice(0, 220)}`).join('\n\n');
+  const prompt = `Web search results for the name "${name}":\n\n${list}\n\nLook at these results and decide which ones, if any, describe a REAL existing brand, company, or product actually named "${name}" or something extremely close to it - not just a page that happens to use the word, an unrelated meaning, or a person's name. For each real match found, give its name as actually used and the industry/category it's in, in a few words (e.g. "footwear", "software", "coffee shop").\nReply with ONLY a JSON object, no other text: {"matches":[{"name":"...","category":"..."}]} (empty array if no real brand/company match is found).`;
+  const text = await call(cfg, prompt);
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('AI reply was not JSON');
+  const j = JSON.parse(m[0]);
+  const matches = Array.isArray(j.matches) ? j.matches
+    .map(x => ({ name: String(x.name || '').trim().slice(0, 60), category: String(x.category || '').trim().slice(0, 60) }))
+    .filter(x => x.name)
+    .slice(0, 6) : [];
+  return { matches };
+}
+
 // Generates fresh on-brand name candidates when the fixed catalog pool runs out.
 // Returns an array of [name, meaning] pairs, or [] on any failure (caller falls back silently,
 // but the error is logged server-side so a persistent failure shows up in the Render logs).
@@ -142,4 +160,4 @@ async function generateVariations(cfg, name, meaning, kind, context) {
   }
 }
 
-module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, checkDomainAI, checkTrademarkAI, checkSocialAI, generateNames, generateImage, generateVariations };
+module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, checkDomainAI, checkTrademarkAI, checkSocialAI, extractBrandMatches, generateNames, generateImage, generateVariations };

@@ -32,24 +32,42 @@ const DOMAIN_TLDS = ['com', 'io', 'ai', 'co', 'net'];
 async function rdapOne(domain) {
   try {
     const r = await fetch(`https://rdap.org/domain/${domain}`, {
-      headers: { accept: 'application/rdap+json' }, signal: AbortSignal.timeout(8000)
+      headers: {
+        accept: 'application/rdap+json',
+        // Some authoritative RDAP servers (behind rdap.org's redirect) block requests whose
+        // user-agent doesn't look like a browser/known client - without this header all TLDs
+        // can fail at once even though rdap.org itself is up.
+        'user-agent': 'Mozilla/5.0 (compatible; NamaeStudioBot/1.0; +https://namae-studio.onrender.com)'
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(12000)
     });
     if (r.status === 404) return { domain, free: true };
     if (r.ok) return { domain, free: false };
     return { domain, free: null, code: r.status };
-  } catch (e) { return { domain, free: null, err: true }; }
+  } catch (e) {
+    console.error(`RDAP lookup failed for ${domain}:`, e.message);
+    return { domain, free: null, err: true, errMsg: e.message };
+  }
 }
 async function rdap(name) {
   const base = clean(name);
   if (!base) return pending('domain', 'No name to check.', 'RDAP');
   const checks = await Promise.all(DOMAIN_TLDS.map(tld => rdapOne(`${base}.${tld}`)));
   const resolved = checks.filter(c => c.free !== null);
-  if (!resolved.length) return pending('domain', 'RDAP lookups failed for every TLD checked. Try again.', 'RDAP');
+  if (!resolved.length) {
+    const reason = checks.find(c => c.errMsg)?.errMsg || checks.find(c => c.code)?.code;
+    return pending('domain', `Couldn't reach the domain registry just now${reason ? ' (' + reason + ')' : ''}. Try again in a moment.`, 'RDAP');
+  }
   const primary = resolved.find(c => c.domain.endsWith('.com')) || resolved[0];
-  const summary = resolved.map(c => `${c.domain} ${c.free ? 'free' : 'taken'}`).join(', ');
+  const taken = resolved.filter(c => !c.free).map(c => c.domain);
+  const available = resolved.filter(c => c.free).map(c => c.domain);
+  const parts = [];
+  if (taken.length) parts.push(`${taken.join(', ')} ${taken.length > 1 ? 'are' : 'is'} already taken`);
+  if (available.length) parts.push(`${available.join(', ')} ${available.length > 1 ? 'are' : 'is'} still available`);
   return {
     id: 'domain', label: LABEL.domain, status: primary.free ? 'Clear' : 'Review',
-    summary: `${summary}. Confirm with a registrar before buying.`, source: 'RDAP'
+    summary: `${parts.join('. ')}. Confirm with a registrar before buying.`, source: 'RDAP'
   };
 }
 
@@ -137,21 +155,50 @@ async function socialProbe(name) {
   };
 }
 
-// ---------- Similar brands: live web search via Tavily, layered under the AI's opinion ----------
-async function tavilySimilar(cfg, name) {
+// ---------- Similar brands: live web search via Tavily, read by the AI to name actual brands ----------
+// A raw search hit ("found a page mentioning this word") isn't useful on its own - the person
+// needs to know WHICH existing brand/company it is and WHAT category it's in, so they can judge
+// whether it actually competes with them. When the AI is available, it reads the real search
+// results and extracts that; when it isn't, we fall back to listing the raw page titles.
+async function tavilySimilar(cfg, llm, name) {
   const key = cfg.keys.tavily;
   if (!key) return null;
   try {
     const r = await fetch('https://api.tavily.com/search', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ api_key: key, query: `"${name}" brand OR company OR product OR app`, search_depth: 'basic', max_results: 5 }),
+      body: JSON.stringify({ api_key: key, query: `"${name}" brand OR company OR product OR app`, search_depth: 'basic', max_results: 5, include_raw_content: false }),
       signal: AbortSignal.timeout(10000)
     });
     if (!r.ok) return pending('similar', `Web search returned ${r.status}.`, 'Web search');
     const data = await r.json();
     const hits = (data.results || []).filter(x => x.title && x.url);
-    if (!hits.length) return { id: 'similar', label: LABEL.similar, status: 'Clear', summary: `No existing brand, product, or company found online matching "${name}".`, source: 'Web search' };
-    return { id: 'similar', label: LABEL.similar, status: 'Review', summary: `Found an existing web result for "${name}": ${hits[0].title} (${hits[0].url}).`, source: 'Web search' };
+    if (!hits.length) {
+      return { id: 'similar', label: LABEL.similar, status: 'Clear', summary: `No existing brand, product, or company found online matching "${name}".`, source: 'Web search' };
+    }
+    if (cfg.sources.llm && cfg.keys.gemini) {
+      try {
+        const { matches } = await llm.extractBrandMatches(cfg, name, hits);
+        if (matches.length) {
+          const list = matches.map(m => `${m.name}${m.category ? ` (${m.category})` : ''}`).join(', ');
+          return {
+            id: 'similar', label: LABEL.similar, status: 'Review',
+            summary: `Already in use by: ${list}. Check these before committing to "${name}".`,
+            source: 'Web search + AI'
+          };
+        }
+        return {
+          id: 'similar', label: LABEL.similar, status: 'Clear',
+          summary: `Web search found pages mentioning "${name}", but none describe a real existing brand, company, or product by this name.`,
+          source: 'Web search + AI'
+        };
+      } catch (e) { /* fall through to the raw listing below */ }
+    }
+    const top = hits.slice(0, 3).map(h => `${h.title} (${h.url})`).join('; ');
+    return {
+      id: 'similar', label: LABEL.similar, status: 'Review',
+      summary: `Web results mention "${name}": ${top}. Review these manually to see if any is a real competing brand.`,
+      source: 'Web search'
+    };
   } catch (e) {
     return pending('similar', 'Web search failed: ' + e.message, 'Web search');
   }
@@ -190,7 +237,7 @@ async function run(name, cfg, llm, context) {
   const liveDomain = cfg.sources.rdap ? await rdap(name) : null;
   const liveTrademark = await uspto(name);
   const liveSocial = await socialProbe(name);
-  const liveSimilar = await tavilySimilar(cfg, name);
+  const liveSimilar = await tavilySimilar(cfg, llm, name);
   const [domainResult, sound, origin, similar, trademarkResult, socialResult] = await Promise.all([
     combined('domain', LABEL.domain, 'RDAP', liveDomain, aiReady, () => llm.checkDomainAI(cfg, name, ctx)),
     aiCheck(cfg, llm, 'sound', llm.checkSound, name, context),
@@ -225,7 +272,7 @@ async function test(source, cfg, llm) {
   if (source === 'tavily') {
     const have = !!cfg.keys.tavily;
     if (!have) return { ok: false, message: 'No key saved.' };
-    const r = await tavilySimilar(cfg, 'namaestudiotest brand');
+    const r = await tavilySimilar(cfg, llm, 'namaestudiotest brand');
     return { ok: !!r && r.status !== 'Pending', message: r ? r.summary : 'No response.' };
   }
   if (source === 'llm') {
