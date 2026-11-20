@@ -36,8 +36,9 @@ Open http://localhost:3000. The first start creates the admin user from `ADMIN_I
 | `GEMINI_API_KEY` | AI: restates the brief, suggests classes/segments, checks sound, origin, similar brands |
 | `GEMINI_MODEL` | AI model name to use (optional; defaults to `gemini-3.5-flash-lite` — the cheapest, fastest Gemini model, chosen to avoid timeouts on Render's free tier). Overrides the model saved in Admin, and persists across restarts. A "thinking" model like `gemini-3.x-flash` (non-lite) is slower and costs more per call; use it only if you need noticeably better name/image quality and don't mind the extra latency and cost. |
 | `GEMINI_IMAGE_MODEL` | Image model for the name-detail Visual box (optional; defaults to `gemini-2.5-flash-image`, Google's "Nano Banana" model — Imagen is retired). |
-| `EUIPO_CLIENT_ID`, `EUIPO_CLIENT_SECRET` | EU trademark check (adapter still placeholder) |
-| `USPTO_API_KEY` | US trademark check (adapter still placeholder) |
-| `WHOISXML_API_KEY` | Domain and social checks (adapter still placeholder) |
+| `EUIPO_CLIENT_ID`, `EUIPO_CLIENT_SECRET` | EU trademark check (free account at dev.euipo.europa.eu; still a placeholder here until we have the exact product base URL from your dashboard) |
+| `USPTO_API_KEY` | Not actually needed — US trademark search now calls USPTO's own public `tmsearch.uspto.gov` backend directly (same query their own site uses), no key required. Kept for backward compatibility only. |
+| `WHOISXML_API_KEY` | Not currently used — domain checks use free RDAP instead (no key needed) |
+| `TAVILY_API_KEY` | Live web search backing the "Similar brands" check, so it catches an existing brand the AI's training data might miss (free tier: 1,000 searches/month, no card, sign up at tavily.com) |
 
 A key set here switches its source on automatically and takes priority over the key typed in Admin. Keys typed in Admin are saved to `data.json`, which the free tier wipes on restart, so prefer env vars for anything you need to keep.

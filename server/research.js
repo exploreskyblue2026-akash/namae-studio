@@ -1,7 +1,23 @@
 'use strict';
-// Research runner. Each parameter has one adapter. Anything not connected returns Pending with a plain reason.
-// Live adapters: RDAP domain check, and the three AI checks (sound, origin, similar) when a Gemini key is set.
-// EUIPO, USPTO, WhoisXML, and social remain placeholders pending real integrations.
+// Research runner. Each parameter has one adapter, and where a real free live source exists it
+// is combined with the AI's opinion via combined() below, so the AI note is always clearly
+// labeled as a note on top of live data rather than standing in for it.
+//
+// What's actually live, and why, as of this build:
+// - Domain: RDAP (ICANN's standard, built for automated lookups) across several TLDs. No key.
+// - Trademark: the US Patent and Trademark Office's own public search backend
+//   (tmsearch.uspto.gov) is called directly with the same query shape their own site uses -
+//   captured by inspecting their site's own network traffic. No key, no login, official USPTO
+//   data. EUIPO (EU trademarks) needs the user's own free dev.euipo.europa.eu credentials plus
+//   their product's exact base URL before it can be wired in the same way - not guessed here.
+// - Social: no platform offers a real "is this handle free" API. This is a best-effort HTTP
+//   probe of each platform's public profile URL, labeled honestly as best-effort in the result
+//   text, since platforms can rate-limit or block automated checks.
+// - Similar brands: a live web search via Tavily (free tier, needs TAVILY_API_KEY) layered under
+//   the AI's opinion, so an actual existing brand turns up even if the AI's training data missed
+//   or misremembered it. Falls back to AI-only if no Tavily key is set.
+// - Sound & feel / Origin & meaning: inherently a linguistic judgment call, not a registry fact,
+//   so these stay AI-only.
 
 const LABEL = {
   sound: 'Sound & feel', origin: 'Origin & meaning', similar: 'Similar brands',
@@ -9,18 +25,135 @@ const LABEL = {
 };
 const today = () => new Date().toLocaleDateString();
 const pending = (id, summary, source) => ({ id, label: LABEL[id], status: 'Pending', summary, source });
+const clean = (name) => (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-async function rdap(name) {
-  const domain = name.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
+// ---------- Domain: RDAP across a few common TLDs ----------
+const DOMAIN_TLDS = ['com', 'io', 'ai', 'co', 'net'];
+async function rdapOne(domain) {
   try {
     const r = await fetch(`https://rdap.org/domain/${domain}`, {
       headers: { accept: 'application/rdap+json' }, signal: AbortSignal.timeout(8000)
     });
-    if (r.status === 404) return { id: 'domain', label: LABEL.domain, status: 'Clear', summary: `${domain} not found in RDAP. Confirm with a registrar.`, source: 'RDAP' };
-    if (r.ok) return { id: 'domain', label: LABEL.domain, status: 'Review', summary: `${domain} is registered.`, source: 'RDAP' };
-    return pending('domain', `RDAP returned ${r.status}.`, 'RDAP');
+    if (r.status === 404) return { domain, free: true };
+    if (r.ok) return { domain, free: false };
+    return { domain, free: null, code: r.status };
+  } catch (e) { return { domain, free: null, err: true }; }
+}
+async function rdap(name) {
+  const base = clean(name);
+  if (!base) return pending('domain', 'No name to check.', 'RDAP');
+  const checks = await Promise.all(DOMAIN_TLDS.map(tld => rdapOne(`${base}.${tld}`)));
+  const resolved = checks.filter(c => c.free !== null);
+  if (!resolved.length) return pending('domain', 'RDAP lookups failed for every TLD checked. Try again.', 'RDAP');
+  const primary = resolved.find(c => c.domain.endsWith('.com')) || resolved[0];
+  const summary = resolved.map(c => `${c.domain} ${c.free ? 'free' : 'taken'}`).join(', ');
+  return {
+    id: 'domain', label: LABEL.domain, status: primary.free ? 'Clear' : 'Review',
+    summary: `${summary}. Confirm with a registrar before buying.`, source: 'RDAP'
+  };
+}
+
+// ---------- Trademark: USPTO's own public search backend, called directly ----------
+// Endpoint and query shape captured live from tmsearch.uspto.gov's own network traffic - this is
+// exactly what the official site sends when a person searches a wordmark there. No API key.
+const USPTO_ENDPOINT = 'https://tmsearch.uspto.gov/prod-stage-v1-0-0/tmsearch';
+async function uspto(name) {
+  const q = (name || '').trim();
+  if (!q) return pending('trademark', 'No name to check.', 'USPTO');
+  const body = {
+    query: { bool: { must: [{ bool: { should: [
+      { match_phrase: { WM: { query: q, boost: 5 } } },
+      { match: { WM: { query: q, boost: 2 } } },
+      { match_phrase: { PM: { query: q, boost: 2 } } }
+    ] } }] } },
+    size: 20, from: 0, track_total_hits: true,
+    _source: ['alive', 'wordmark', 'registrationId', 'registrationDate', 'filedDate', 'ownerName', 'markType', 'goodsAndServices']
+  };
+  try {
+    const r = await fetch(USPTO_ENDPOINT, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://tmsearch.uspto.gov', referer: 'https://tmsearch.uspto.gov/' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!r.ok) return pending('trademark', `USPTO search returned ${r.status}.`, 'USPTO');
+    const data = await r.json();
+    const hits = data?.hits?.hits || [];
+    const want = clean(q);
+    const exact = hits.filter(h => clean(h._source?.wordmark) === want);
+    const liveExact = exact.filter(h => h._source?.alive);
+    if (liveExact.length) {
+      const ex = liveExact[0]._source;
+      return {
+        id: 'trademark', label: LABEL.trademark, status: 'Review',
+        summary: `USPTO: an active mark "${ex.wordmark}" already exists (owner: ${ex.ownerName || 'unknown'}, reg. ${ex.registrationId || 'pending'}).`,
+        source: 'USPTO'
+      };
+    }
+    if (exact.length) {
+      return {
+        id: 'trademark', label: LABEL.trademark, status: 'Clear',
+        summary: `USPTO: ${exact.length} exact-match filing(s) found for "${q}", but none currently active.`,
+        source: 'USPTO'
+      };
+    }
+    return {
+      id: 'trademark', label: LABEL.trademark, status: 'Clear',
+      summary: `USPTO: no exact-match wordmark on file for "${q}".`,
+      source: 'USPTO'
+    };
   } catch (e) {
-    return pending('domain', 'Lookup failed. Try again.', 'RDAP');
+    return pending('trademark', 'USPTO search failed: ' + e.message, 'USPTO');
+  }
+}
+
+// ---------- Social: best-effort profile-URL probe (no official API exists anywhere for this) ----------
+const SOCIAL_PLATFORMS = [
+  { label: 'Instagram', url: h => `https://www.instagram.com/${h}/` },
+  { label: 'X', url: h => `https://x.com/${h}` },
+  { label: 'TikTok', url: h => `https://www.tiktok.com/@${h}` },
+  { label: 'YouTube', url: h => `https://www.youtube.com/@${h}` }
+];
+async function socialProbe(name) {
+  const handle = clean(name);
+  if (!handle) return pending('social', 'No name to check.', 'Platforms');
+  const checks = await Promise.all(SOCIAL_PLATFORMS.map(async (p) => {
+    try {
+      const r = await fetch(p.url(handle), {
+        method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(8000),
+        headers: { 'user-agent': 'Mozilla/5.0 (compatible; NamaeStudioBot/1.0; brand-name availability check)' }
+      });
+      return { label: p.label, taken: r.status === 200, code: r.status };
+    } catch (e) { return { label: p.label, taken: null, err: true }; }
+  }));
+  const resolved = checks.filter(c => c.taken !== null);
+  if (!resolved.length) return pending('social', 'Platform checks failed. Try again.', 'Platforms');
+  const taken = resolved.filter(c => c.taken);
+  const summary = resolved.map(c => `${c.label} ${c.taken ? 'taken' : 'free'}`).join(', ');
+  return {
+    id: 'social', label: LABEL.social, status: taken.length ? 'Review' : 'Clear',
+    summary: `${summary} (best-effort: platforms can block automated checks - confirm manually before relying on this).`,
+    source: 'Platforms'
+  };
+}
+
+// ---------- Similar brands: live web search via Tavily, layered under the AI's opinion ----------
+async function tavilySimilar(cfg, name) {
+  const key = cfg.keys.tavily;
+  if (!key) return null;
+  try {
+    const r = await fetch('https://api.tavily.com/search', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ api_key: key, query: `"${name}" brand OR company OR product OR app`, search_depth: 'basic', max_results: 5 }),
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!r.ok) return pending('similar', `Web search returned ${r.status}.`, 'Web search');
+    const data = await r.json();
+    const hits = (data.results || []).filter(x => x.title && x.url);
+    if (!hits.length) return { id: 'similar', label: LABEL.similar, status: 'Clear', summary: `No existing brand, product, or company found online matching "${name}".`, source: 'Web search' };
+    return { id: 'similar', label: LABEL.similar, status: 'Review', summary: `Found an existing web result for "${name}": ${hits[0].title} (${hits[0].url}).`, source: 'Web search' };
+  } catch (e) {
+    return pending('similar', 'Web search failed: ' + e.message, 'Web search');
   }
 }
 
@@ -35,9 +168,8 @@ async function aiCheck(cfg, llm, id, fn, name, context) {
   }
 }
 
-// Dynamic combiner: uses the live web source when it's connected, the AI's best-knowledge
-// opinion when it isn't, and both together (live status wins, AI note appended) when both ran.
-// This replaces the old flat "not built yet" placeholder with some real signal either way.
+// Dynamic combiner: uses the live source when it's connected, the AI's best-knowledge opinion
+// when it isn't, and both together (live status wins, AI note appended) when both ran.
 async function combined(id, label, liveLabel, live, aiReady, aiCheckFn) {
   const liveOk = live && live.status !== 'Pending';
   const ai = aiReady ? await safeAI(aiCheckFn) : null;
@@ -56,15 +188,16 @@ async function run(name, cfg, llm, context) {
   const ctx = context || 'No business context given.';
   const aiReady = !!(cfg.sources.llm && cfg.keys.gemini);
   const liveDomain = cfg.sources.rdap ? await rdap(name) : null;
-  const liveTrademarkOn = cfg.sources.euipo && (cfg.keys.euipo_client_id || cfg.keys.uspto);
-  const liveTrademark = liveTrademarkOn ? pending('trademark', 'Key saved. Live trademark-registry search not built yet.', 'EUIPO / USPTO') : null;
+  const liveTrademark = await uspto(name);
+  const liveSocial = await socialProbe(name);
+  const liveSimilar = await tavilySimilar(cfg, name);
   const [domainResult, sound, origin, similar, trademarkResult, socialResult] = await Promise.all([
     combined('domain', LABEL.domain, 'RDAP', liveDomain, aiReady, () => llm.checkDomainAI(cfg, name, ctx)),
     aiCheck(cfg, llm, 'sound', llm.checkSound, name, context),
     aiCheck(cfg, llm, 'origin', llm.checkOrigin, name, context),
-    aiCheck(cfg, llm, 'similar', llm.checkSimilar, name, context),
-    combined('trademark', LABEL.trademark, 'EUIPO / USPTO', liveTrademark, aiReady, () => llm.checkTrademarkAI(cfg, name, ctx)),
-    combined('social', LABEL.social, 'Platforms', null, aiReady, () => llm.checkSocialAI(cfg, name, ctx))
+    combined('similar', LABEL.similar, 'Web search', liveSimilar, aiReady, () => llm.checkSimilar(cfg, name, ctx)),
+    combined('trademark', LABEL.trademark, 'USPTO', liveTrademark, aiReady, () => llm.checkTrademarkAI(cfg, name, ctx)),
+    combined('social', LABEL.social, 'Platforms', liveSocial, aiReady, () => llm.checkSocialAI(cfg, name, ctx))
   ]);
   const results = [domainResult, sound, origin, similar, trademarkResult, socialResult];
   const verdict = results.some(r => r.status === 'Blocked') ? 'Stop'
@@ -81,14 +214,28 @@ async function test(source, cfg, llm) {
     const r = await rdap('namaestudiotest');
     return { ok: r.status !== 'Pending', message: r.status !== 'Pending' ? 'RDAP reachable' : r.summary };
   }
+  if (source === 'uspto') {
+    const r = await uspto('namaestudiotest');
+    return { ok: r.status !== 'Pending', message: r.status !== 'Pending' ? 'USPTO search reachable: ' + r.summary : r.summary };
+  }
+  if (source === 'social') {
+    const r = await socialProbe('namaestudiotest');
+    return { ok: r.status !== 'Pending', message: r.summary };
+  }
+  if (source === 'tavily') {
+    const have = !!cfg.keys.tavily;
+    if (!have) return { ok: false, message: 'No key saved.' };
+    const r = await tavilySimilar(cfg, 'namaestudiotest brand');
+    return { ok: !!r && r.status !== 'Pending', message: r ? r.summary : 'No response.' };
+  }
   if (source === 'llm') {
     try { const t = await llm.ping(cfg); return { ok: true, message: 'AI replied: ' + t.slice(0, 80) }; }
     catch (e) { return { ok: false, message: e.message }; }
   }
-  const keys = { euipo: ['euipo_client_id', 'euipo_client_secret'], uspto: ['uspto'], whoisxml: ['whoisxml'] }[source];
+  const keys = { euipo: ['euipo_client_id', 'euipo_client_secret'], whoisxml: ['whoisxml'] }[source];
   if (!keys) return { ok: false, message: 'Unknown source' };
   const have = keys.some(k => cfg.keys[k]);
-  return { ok: have, message: have ? 'Key saved. Live test needs the adapter.' : 'No key saved.' };
+  return { ok: have, message: have ? 'Key saved. Live EUIPO search needs the product base URL from your dev.euipo.europa.eu dashboard before it can be wired in.' : 'No key saved.' };
 }
 
-module.exports = { run, test, rdap };
+module.exports = { run, test, rdap, uspto, socialProbe };

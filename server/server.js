@@ -47,8 +47,8 @@ function seed() {
     users: [{ id: 'u_admin', email, name: 'Admin', role: 'admin', active: true, salt, pwHash: hash(pw, salt), created: now() }],
     sessions: {}, projects: [], logs: [],
     config: {
-      keys: { gemini: '', euipo_client_id: '', euipo_client_secret: '', uspto: '', whoisxml: '' },
-      sources: { rdap: true, euipo: false, uspto: false, whoisxml: false, llm: false },
+      keys: { gemini: '', euipo_client_id: '', euipo_client_secret: '', uspto: '', whoisxml: '', tavily: '' },
+      sources: { rdap: true, euipo: false, uspto: false, whoisxml: false, llm: false, tavily: false },
       llm: { model: 'gemini-3.5-flash-lite' },
       uiText: {}
     }
@@ -69,8 +69,8 @@ function save() {
 
 // API keys: Render environment variables win over keys typed in Admin.
 // Env vars persist across restarts; keys saved in data.json do not on the free tier.
-const ENV_KEYS = { gemini: 'GEMINI_API_KEY', euipo_client_id: 'EUIPO_CLIENT_ID', euipo_client_secret: 'EUIPO_CLIENT_SECRET', uspto: 'USPTO_API_KEY', whoisxml: 'WHOISXML_API_KEY' };
-const SOURCE_KEYS = { llm: ['gemini'], euipo: ['euipo_client_id', 'euipo_client_secret'], uspto: ['uspto'], whoisxml: ['whoisxml'] };
+const ENV_KEYS = { gemini: 'GEMINI_API_KEY', euipo_client_id: 'EUIPO_CLIENT_ID', euipo_client_secret: 'EUIPO_CLIENT_SECRET', uspto: 'USPTO_API_KEY', whoisxml: 'WHOISXML_API_KEY', tavily: 'TAVILY_API_KEY' };
+const SOURCE_KEYS = { llm: ['gemini'], euipo: ['euipo_client_id', 'euipo_client_secret'], uspto: ['uspto'], whoisxml: ['whoisxml'], tavily: ['tavily'] };
 function cfg() {
   const keys = { ...db.config.keys };
   for (const k of Object.keys(ENV_KEYS)) if (process.env[ENV_KEYS[k]]) keys[k] = process.env[ENV_KEYS[k]].trim();
