@@ -24,12 +24,6 @@ async function rdap(name) {
   }
 }
 
-function gated(cfg, source, keyNames, id, label) {
-  if (!cfg.sources[source]) return pending(id, 'Source is off in Admin.', label);
-  if (!keyNames.some(k => cfg.keys[k])) return pending(id, 'Not connected. Add a key in Admin.', label);
-  return pending(id, 'Key saved. Adapter not built yet.', label);
-}
-
 async function aiCheck(cfg, llm, id, fn, name, context) {
   if (!cfg.sources.llm) return pending(id, 'AI check is off in Admin.', 'AI');
   if (!cfg.keys.gemini) return pending(id, 'Not connected. Add the AI key in Admin.', 'AI');
@@ -41,21 +35,38 @@ async function aiCheck(cfg, llm, id, fn, name, context) {
   }
 }
 
+// Dynamic combiner: uses the live web source when it's connected, the AI's best-knowledge
+// opinion when it isn't, and both together (live status wins, AI note appended) when both ran.
+// This replaces the old flat "not built yet" placeholder with some real signal either way.
+async function combined(id, label, liveLabel, live, aiReady, aiCheckFn) {
+  const liveOk = live && live.status !== 'Pending';
+  const ai = aiReady ? await safeAI(aiCheckFn) : null;
+  if (liveOk && ai) return { id, label, status: live.status, summary: `${live.summary} AI note: ${ai.summary}`, source: `${liveLabel} + AI` };
+  if (liveOk) return { id, label, status: live.status, summary: live.summary, source: liveLabel };
+  if (live && ai) return { id, label, status: ai.status, summary: `${live.summary} AI note: ${ai.summary} (knowledge-based, not a live check.)`, source: `${liveLabel} + AI` };
+  if (ai) return { id, label, status: ai.status, summary: ai.summary + ' (AI knowledge, not a live check.)', source: 'AI' };
+  if (live) return { ...live, id, label };
+  return pending(id, aiReady ? 'Live source is off, and the AI check failed. Try again.' : 'Live source is off, and AI is not connected.', liveLabel);
+}
+async function safeAI(fn) {
+  try { return await fn(); } catch (e) { return null; }
+}
+
 async function run(name, cfg, llm, context) {
-  // Run the domain lookup and the three independent AI checks in parallel instead of one
-  // after another — four separate network round-trips in sequence is the main reason research
-  // felt slow; in parallel it takes roughly as long as the single slowest check.
-  const [domainResult, sound, origin, similar] = await Promise.all([
-    cfg.sources.rdap ? rdap(name) : Promise.resolve(pending('domain', 'Source is off in Admin.', 'RDAP')),
+  const ctx = context || 'No business context given.';
+  const aiReady = !!(cfg.sources.llm && cfg.keys.gemini);
+  const liveDomain = cfg.sources.rdap ? await rdap(name) : null;
+  const liveTrademarkOn = cfg.sources.euipo && (cfg.keys.euipo_client_id || cfg.keys.uspto);
+  const liveTrademark = liveTrademarkOn ? pending('trademark', 'Key saved. Live trademark-registry search not built yet.', 'EUIPO / USPTO') : null;
+  const [domainResult, sound, origin, similar, trademarkResult, socialResult] = await Promise.all([
+    combined('domain', LABEL.domain, 'RDAP', liveDomain, aiReady, () => llm.checkDomainAI(cfg, name, ctx)),
     aiCheck(cfg, llm, 'sound', llm.checkSound, name, context),
     aiCheck(cfg, llm, 'origin', llm.checkOrigin, name, context),
-    aiCheck(cfg, llm, 'similar', llm.checkSimilar, name, context)
+    aiCheck(cfg, llm, 'similar', llm.checkSimilar, name, context),
+    combined('trademark', LABEL.trademark, 'EUIPO / USPTO', liveTrademark, aiReady, () => llm.checkTrademarkAI(cfg, name, ctx)),
+    combined('social', LABEL.social, 'Platforms', null, aiReady, () => llm.checkSocialAI(cfg, name, ctx))
   ]);
-  const results = [
-    domainResult, sound, origin, similar,
-    gated(cfg, 'euipo', ['euipo_client_id', 'euipo_client_secret'], 'trademark', 'EUIPO / USPTO'),
-    pending('social', 'No social adapter yet.', 'Platforms')
-  ];
+  const results = [domainResult, sound, origin, similar, trademarkResult, socialResult];
   const verdict = results.some(r => r.status === 'Blocked') ? 'Stop'
     : results.every(r => r.status === 'Clear') ? 'Go' : 'Check';
   return {

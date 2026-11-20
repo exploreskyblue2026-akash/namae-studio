@@ -59,6 +59,21 @@ async function checkSimilar(cfg, name, context) {
   return checkJSON(cfg, `Brand name: "${name}". Business: ${context}\nFrom your knowledge, is there a well-known existing brand, product, or company with an identical or very similar name that could cause confusion? Say "Review" and name it if so; otherwise say "Clear" and note that no close match is known. This is a knowledge check, not a live trademark search.`);
 }
 
+// Used when a live source (RDAP / EUIPO / USPTO / a social-handle API) is off or unavailable,
+// or alongside a live result as a second opinion. Always framed as a knowledge-based guess, not
+// a verified live lookup, so the UI label can be honest about what kind of signal this is.
+async function checkDomainAI(cfg, name, context) {
+  return checkJSON(cfg, `Domain: "${name.toLowerCase().replace(/[^a-z0-9]/g, '')}.com". Business: ${context}\nFrom your training knowledge (not a live lookup), is this likely to already be a well-known, long-established domain or brand? Say "Review" only if you recognize it as an existing well-known site; otherwise say "Clear" and note that it is not a domain you recognize as taken. Be clear this is not a live availability check.`);
+}
+
+async function checkTrademarkAI(cfg, name, context) {
+  return checkJSON(cfg, `Brand name: "${name}". Business: ${context}\nFrom your knowledge, could this name conflict with a well-known registered trademark in this business category? Say "Review" and name the conflict if you know of one; otherwise say "Clear" and note that a formal trademark register search is still needed. This is a knowledge-based opinion, not a live trademark registry search.`);
+}
+
+async function checkSocialAI(cfg, name, context) {
+  return checkJSON(cfg, `Brand name: "${name}". Business: ${context}\nFrom your knowledge, is "${name}" likely already a well-known, widely-used handle or account name on major social platforms (Instagram, X, TikTok)? Say "Review" only if you recognize it as an existing well-known account; otherwise say "Clear" and note that handle availability still needs a live check. This is a knowledge-based opinion, not a live platform check.`);
+}
+
 // Generates fresh on-brand name candidates when the fixed catalog pool runs out.
 // Returns an array of [name, meaning] pairs, or [] on any failure (caller falls back silently,
 // but the error is logged server-side so a persistent failure shows up in the Render logs).
@@ -106,4 +121,25 @@ async function generateImage(cfg, prompt) {
   return `data:${img.inlineData.mimeType || 'image/png'};base64,${img.inlineData.data}`;
 }
 
-module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, generateNames, generateImage };
+// Generates name variations (spelling twists or a new word-part swapped in) via the AI, so
+// variations reflect the actual name's meaning and the brief, not just a fixed letter-swap
+// algorithm. Falls back to [] on any failure; caller uses the deterministic algorithm instead.
+async function generateVariations(cfg, name, meaning, kind, context) {
+  const ask = kind === 'new'
+    ? `Invent 3 variations of the brand name "${name}" (meaning: ${meaning}) by swapping in a different word-part while keeping the start of the name recognizable.`
+    : `Invent 4 variations of the brand name "${name}" (meaning: ${meaning}) by tweaking its spelling or sound — similar enough to still feel like the same name.`;
+  const seed = Math.random().toString(36).slice(2, 8);
+  const prompt = `Business: ${context || 'not specified'}\n${ask}\n(Creativity seed: ${seed}; ignore this number.)\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"one short sentence"}, ...]`;
+  try {
+    const text = await call(cfg, prompt, { temperature: 1.2 });
+    const m = text.match(/\[[\s\S]*\]/);
+    if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
+    const arr = JSON.parse(m[0]);
+    return arr.map(x => [String(x.name || '').trim().slice(0, 40), String(x.meaning || '').trim().slice(0, 200)]).filter(([n]) => n);
+  } catch (e) {
+    console.error('AI generateVariations failed:', e.message);
+    return [];
+  }
+}
+
+module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, checkDomainAI, checkTrademarkAI, checkSocialAI, generateNames, generateImage, generateVariations };

@@ -23,13 +23,14 @@ Open http://localhost:3000. The first start creates the admin user from `ADMIN_I
 
 ## Notes
 
-- `server/data.json` holds users and API keys. It is git-ignored. Do not commit it.
-- Storage is a JSON file for now. Move to a hosted database before deploying to a free host that does not keep files.
+- `server/data.json` holds users, projects, and API keys when no database is connected. It is git-ignored. Do not commit it.
+- Storage: set `DATABASE_URL` (see below) to persist to Postgres. Without it, everything lives in `data.json`, which Render's free tier wipes on every restart/redeploy.
 
 ## Environment variables (set these in Render → Environment)
 
 | Variable | Purpose |
 | --- | --- |
+| `DATABASE_URL` | Postgres connection string. When set, all app data (users, projects, names, API keys) persists there instead of the local file, surviving restarts and redeploys. Falls back to `data.json` if unset or unreachable. |
 | `ADMIN_ID` | Admin login email (default `admin@skyblue.local`) |
 | `ADMIN_PASSWORD` | Admin login password (default `change-me-now`; set this) |
 | `GEMINI_API_KEY` | AI: restates the brief, suggests classes/segments, checks sound, origin, similar brands |

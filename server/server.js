@@ -8,6 +8,26 @@ const research = require('./research');
 const llm = require('./llm');
 
 const DB = path.join(__dirname, 'data.json');
+// Persistent storage: when DATABASE_URL is set (Render Postgres), the whole app state is kept
+// as one JSON blob in a single-row table there, so it survives free-tier restarts and redeploys.
+// Without it, falls back to the local data.json file (wiped on every restart on Render's free tier).
+const DATABASE_URL = process.env.DATABASE_URL || '';
+let pgPool = null;
+if (DATABASE_URL) {
+  const { Pool } = require('pg');
+  pgPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+}
+async function pgLoad() {
+  await pgPool.query('CREATE TABLE IF NOT EXISTS store (id INT PRIMARY KEY, data JSONB NOT NULL)');
+  const r = await pgPool.query('SELECT data FROM store WHERE id = 1');
+  if (r.rows.length) return r.rows[0].data;
+  const d = seed();
+  await pgPool.query('INSERT INTO store (id, data) VALUES (1, $1)', [d]);
+  return d;
+}
+async function pgSave(data) {
+  await pgPool.query('UPDATE store SET data = $1 WHERE id = 1', [data]);
+}
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -34,12 +54,18 @@ function seed() {
     }
   };
 }
-function load() {
+function loadFile() {
   try { return JSON.parse(fs.readFileSync(DB, 'utf8')); }
   catch (e) { const d = seed(); fs.writeFileSync(DB, JSON.stringify(d, null, 2)); return d; }
 }
-let db = load();
-function save() { const tmp = DB + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(db, null, 2)); fs.renameSync(tmp, DB); }
+let db = null; // populated by init() below before the server starts accepting requests
+// Fire-and-forget: routes call save() synchronously without awaiting it, same as the old
+// writeFileSync did. With Postgres this is now an async write; errors are logged, not thrown,
+// so one failed save doesn't crash a request that already got its response.
+function save() {
+  if (pgPool) { pgSave(db).catch(e => console.error('DB save failed:', e.message)); return; }
+  const tmp = DB + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(db, null, 2)); fs.renameSync(tmp, DB);
+}
 
 // API keys: Render environment variables win over keys typed in Admin.
 // Env vars persist across restarts; keys saved in data.json do not on the free tier.
@@ -245,10 +271,22 @@ app.patch('/api/projects/:id/names/:nid', auth, (req, res) => {
   save(); res.json(p);
 });
 
-app.post('/api/projects/:id/names/:nid/variations', auth, (req, res) => {
+app.post('/api/projects/:id/names/:nid/variations', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const n = nameOf(p, req.params.nid); if (!n) return res.status(404).json({ error: 'Name not found' });
-  n.variants = (req.body || {}).kind === 'new' ? C.newElementVariants(n.n, 3) : C.similarVariants(n.n, 4);
+  const kind = (req.body || {}).kind === 'new' ? 'new' : 'similar';
+  const wantCount = kind === 'new' ? 3 : 4;
+  let names = [];
+  if (llmReady()) {
+    const context = p.restatement || p.brief || '';
+    const pairs = await llm.generateVariations(cfg(), n.n, n.m, kind, context);
+    names = pairs.map(([v]) => v);
+  }
+  if (names.length < wantCount) {
+    const fallback = kind === 'new' ? C.newElementVariants(n.n, wantCount) : C.similarVariants(n.n, wantCount);
+    for (const v of fallback) { if (names.length >= wantCount) break; if (!names.includes(v)) names.push(v); }
+  }
+  n.variants = names.slice(0, wantCount);
   save(); res.json(p);
 });
 
@@ -354,4 +392,14 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'in
 app.use((err, req, res, next) => res.status(400).json({ error: 'Bad request' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Namae Studio running on http://localhost:${PORT}`));
+async function init() {
+  if (pgPool) {
+    try { db = await pgLoad(); console.log('Storage: Postgres (persists across restarts).'); }
+    catch (e) { console.error('Postgres connect/load failed, falling back to local file storage:', e.message); db = loadFile(); }
+  } else {
+    db = loadFile();
+    console.log('Storage: local file (data.json). This is wiped on every restart on Render\'s free tier — set DATABASE_URL to persist.');
+  }
+  app.listen(PORT, () => console.log(`Namae Studio running on http://localhost:${PORT}`));
+}
+init();
