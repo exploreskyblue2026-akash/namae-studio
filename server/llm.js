@@ -13,6 +13,35 @@ async function call(cfg, prompt, opts = {}) {
   return callGemini(cfg, prompt, opts);
 }
 
+// Pulls a JSON array of objects out of a model's raw text reply. Gemini reliably returns the
+// requested "[{...}, {...}]" shape, but other providers/models (seen with GPT-5 via OpenRouter)
+// sometimes "helpfully" collapse a single-item reply down to a bare "{...}" object instead of
+// wrapping it in an array, or occasionally emit several "{...}" objects back to back with no
+// enclosing brackets at all. Any of those are still perfectly good data - only our brackets-only
+// regex was too strict - so this tries, in order: a real array, a single object (wrapped into a
+// 1-item array), then multiple back-to-back top-level objects. Throws only if none of those parse.
+function extractJsonArray(text) {
+  const arrMatch = text.match(/\[[\s\S]*\]/);
+  if (arrMatch) {
+    try { return JSON.parse(arrMatch[0]); } catch (e) { /* fall through to other shapes */ }
+  }
+  // Collect every top-level {...} object in the text (handles one bare object, or several
+  // concatenated ones with nothing joining them).
+  const objs = [];
+  let depth = 0, start = -1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '{') { if (depth === 0) start = i; depth++; }
+    else if (c === '}') { depth--; if (depth === 0 && start !== -1) { objs.push(text.slice(start, i + 1)); start = -1; } }
+  }
+  if (objs.length) {
+    const parsed = [];
+    for (const s of objs) { try { parsed.push(JSON.parse(s)); } catch (e) { /* skip malformed fragment */ } }
+    if (parsed.length) return parsed;
+  }
+  throw new Error('AI reply was not valid JSON: ' + text.slice(0, 120));
+}
+
 async function callGemini(cfg, prompt, opts) {
   const key = cfg.keys.gemini;
   if (!key) throw new Error('No Gemini key saved');
@@ -157,9 +186,7 @@ async function suggestDirections(cfg, context, count = 4) {
   const prompt = `Business: ${context}\nInvent ${count} short, distinct brand-naming DIRECTIONS/STYLES tailored specifically to THIS business - not generic categories like "compound words" or "metaphor", but styles that reflect this business's own personality, industry, and audience. (Creativity seed: ${seed}; ignore this number.)\nFor each direction give: a short style label (2-4 words, title case) and a one-sentence hint describing what kind of names it would produce.\nReply with ONLY a JSON array, no other text: [{"label":"...","hint":"..."}, ...]`;
   try {
     const text = await call(cfg, prompt, { temperature: 1.1, json: true, timeoutMs: 25000 });
-    const m = text.match(/\[[\s\S]*\]/);
-    if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
-    const arr = JSON.parse(m[0]);
+    const arr = extractJsonArray(text);
     return arr
       .map(x => ({ label: String(x.label || '').trim().slice(0, 40), hint: String(x.hint || '').trim().slice(0, 160) }))
       .filter(x => x.label)
@@ -200,9 +227,7 @@ async function generateNames(cfg, dirLabel, context, avoid, count, technique) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const text = await call(cfg, prompt, { temperature: 1.3, json: true, timeoutMs: 35000 });
-      const m = text.match(/\[[\s\S]*\]/);
-      if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
-      const arr = JSON.parse(m[0]);
+      const arr = extractJsonArray(text);
       return arr
         .map(x => [String(x.name || '').trim().slice(0, 40), String(x.meaning || '').trim().slice(0, 70)])
         .filter(([n]) => n && !avoid.some(a => a.toLowerCase() === n.toLowerCase()))
@@ -259,9 +284,7 @@ async function generateVariations(cfg, name, meaning, kind, context, dirLabel, c
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const text = await call(cfg, prompt, { temperature: 1.2, json: true, timeoutMs: 30000 });
-      const m = text.match(/\[[\s\S]*\]/);
-      if (!m) throw new Error('AI reply was not a JSON array: ' + text.slice(0, 120));
-      const arr = JSON.parse(m[0]);
+      const arr = extractJsonArray(text);
       return arr.map(x => [String(x.name || '').trim().slice(0, 40), String(x.meaning || '').trim().slice(0, 70)]).filter(([n]) => n);
     } catch (e) {
       console.error(`AI generateVariations failed (attempt ${attempt + 1}/2):`, e.message);
