@@ -515,11 +515,11 @@ function adminHTML(){
   else if (sub === 'connections') {
     const c = A.config;
     if (!c) body = '<div class="empty">…</div>';
-    else body = `
-      ${Object.keys(KEY_LABEL).map(k => `<div class="krow"><span class="lbl">${KEY_LABEL[k]}</span>
-        <span class="pill ${c.keys[k].set?'Clear':'Pending'}">${c.keys[k].set?esc(c.keys[k].hint):'—'}</span>
+    else { c.llm = c.llm || {}; c.sources = c.sources || {}; c.keys = c.keys || {}; body = `
+      ${Object.keys(KEY_LABEL).map(k => { const kv = c.keys[k] || {set:false,hint:'',fromEnv:false}; return `<div class="krow"><span class="lbl">${KEY_LABEL[k]}</span>
+        <span class="pill ${kv.set?'Clear':'Pending'}">${kv.set?esc(kv.hint):'—'}</span>
         <input type="password" data-key="${k}" placeholder="Key" style="max-width:240px">
-        ${c.keys[k].set ? `<button class="ghost sm" data-act="clear-key" data-val="${k}">Clear</button>` : ''}</div>`).join('')}
+        ${kv.set ? `<button class="ghost sm" data-act="clear-key" data-val="${k}">Clear</button>` : ''}</div>`; }).join('')}
       <div class="krow"><span class="lbl">AI provider</span>
         <select id="llmProvider" style="max-width:240px">
           <option value="gemini" ${c.llm.provider!=='openrouter'?'selected':''}>Gemini</option>
@@ -530,7 +530,7 @@ function adminHTML(){
       <div class="krow"><span class="lbl">OpenRouter model</span><input id="llmOpenrouterModel" value="${esc(c.llm.openrouterModel||'openai/gpt-4o-mini')}" placeholder="e.g. openai/gpt-4o-mini, anthropic/claude-3.5-sonnet" style="max-width:320px"></div>
       ${Object.keys(c.sources).map(s => `<div class="krow"><label style="min-width:170px;font-weight:800"><input type="checkbox" data-src="${s}" ${c.sources[s]?'checked':''}> ${SOURCE_LABEL[s]||s}</label>
         <button class="ghost sm" data-act="test" data-val="${s}">Test</button><span class="count" id="test-${s}"></span></div>`).join('')}
-      <div class="row end"><button class="black sm" data-act="save-config">Save</button></div>`;
+      <div class="row end"><button class="black sm" data-act="save-config">Save</button></div>`; }
   } else if (sub === 'text') {
     const c = A.config;
     body = c ? `${Object.keys(c.uiText).map(k => `<div class="krow"><span class="lbl">${esc(k)}</span><input data-text="${k}" value="${esc(c.uiText[k])}" style="flex:1;min-width:260px"></div>`).join('')}

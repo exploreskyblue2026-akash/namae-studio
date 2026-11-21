@@ -73,7 +73,19 @@ function save() {
 // Env vars persist across restarts; keys saved in data.json do not on the free tier.
 const ENV_KEYS = { gemini: 'GEMINI_API_KEY', openrouter: 'OPENROUTER_API_KEY', euipo_client_id: 'EUIPO_CLIENT_ID', euipo_client_secret: 'EUIPO_CLIENT_SECRET', uspto: 'USPTO_API_KEY', whoisxml: 'WHOISXML_API_KEY', tavily: 'TAVILY_API_KEY' };
 const SOURCE_KEYS = { llm: ['gemini'], euipo: ['euipo_client_id', 'euipo_client_secret'], uspto: ['uspto'], whoisxml: ['whoisxml'], tavily: ['tavily'] };
+// Canonical key shape. A project's persisted config (in Postgres/data.json) was written before
+// some of these keys existed (e.g. 'openrouter' was added after projects were already live), so
+// without this, db.config.keys is missing newer fields entirely - which crashed the Connections
+// tab (it iterates a fixed label list and dereferences `.set` on each key, so a genuinely
+// missing key throws instead of just showing "not set").
+const KEY_DEFAULTS = { gemini: '', openrouter: '', euipo_client_id: '', euipo_client_secret: '', uspto: '', whoisxml: '', tavily: '' };
+function ensureKeyShape() {
+  let changed = false;
+  for (const k of Object.keys(KEY_DEFAULTS)) if (!(k in db.config.keys)) { db.config.keys[k] = KEY_DEFAULTS[k]; changed = true; }
+  if (changed) save();
+}
 function cfg() {
+  ensureKeyShape();
   const keys = { ...db.config.keys };
   for (const k of Object.keys(ENV_KEYS)) if (process.env[ENV_KEYS[k]]) keys[k] = process.env[ENV_KEYS[k]].trim();
   const sources = { ...db.config.sources };
@@ -482,6 +494,7 @@ function configView() {
 app.get('/api/admin/config', auth, adminOnly, (req, res) => res.json(configView()));
 
 app.put('/api/admin/config', auth, adminOnly, (req, res) => {
+  ensureKeyShape(); // legacy configs may predate newer key names (e.g. 'openrouter')
   const b = req.body || {};
   Object.entries(b.keys || {}).forEach(([k, v]) => {
     if (k in db.config.keys && typeof v === 'string' && v.trim()) db.config.keys[k] = v.trim();
