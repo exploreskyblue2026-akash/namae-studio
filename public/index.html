@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Namae Studio</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
@@ -219,7 +220,8 @@ const S = {
   token: localStorage.getItem('ns-token') || '', me: null, projects: [], currentId: null,
   catalog: {dirs:[], markets:[], classes:[], segments:[], params:[]}, uiText: {}, llmReady: false,
   view: 'login', selected: null, libMode: 'projects', accTab: 'profile', adminTab: 'users',
-  admin: { users: [], logs: [], logUser: '', config: null }, busy: false, busyMsg: '', namesLoading: false
+  admin: { users: [], logs: [], logUser: '', config: null }, busy: false, busyMsg: '', namesLoading: false,
+  lenFilter: 'all' // Names page length filter: all | short (<=4) | medium (5-6) | long (7+)
 };
 let rec = null, listening = false, micUserStopped = true;
 
@@ -390,16 +392,24 @@ views.names = () => {
       <img class="thinkicon big" src="assets/loading-pencil.gif" width="72" height="72" alt="">
       <div class="namesloading-msg">Generating fresh names for your brief<span class="busydots"><span>.</span><span>.</span><span>.</span></span></div>
     </div>`;
-  const list = suggestions();
+  const all = suggestions();
+  // Length buckets are a rough guide (exact cutoffs vary by taste), labeled with their actual
+  // ranges so the grouping is never a mystery: short/medium/long by letter count of the name
+  // itself (spaces and punctuation stripped, so "House of Aro" counts as 10, not 12).
+  const lenBucket = s => { const n = (s||'').replace(/[^a-zA-Z]/g,'').length; return n <= 4 ? 'short' : n <= 6 ? 'medium' : 'long'; };
+  const list = S.lenFilter === 'all' ? all : all.filter(n => lenBucket(n.n) === S.lenFilter);
+  const lenOpts = [['all','All'],['short','Short (≤4)'],['medium','Medium (5-6)'],['long','Long (7+)']];
   return `
     <div class="row"><h1 class="display">${T('names_title')}</h1><span class="grow"></span>
-      <span class="count">${list.length}</span>
+      <span class="count">${list.length}${S.lenFilter!=='all' ? ` / ${all.length}` : ''}</span>
+      <button class="ghost sm" data-act="regen">Regenerate</button>
       <button class="ghost sm" data-act="reshuffle">${T('reshuffle')}</button>
       <button class="azure sm" data-act="more">${T('more')}</button></div>
+    <div class="seg" style="margin-bottom:8px">${lenOpts.map(([id,l]) => `<button class="${S.lenFilter===id?'on':''}" data-act="len-filter" data-val="${id}">${l}</button>`).join('')}</div>
     ${list.length ? `<div class="tiles">${list.map(n => `
       <button class="tile" style="--c:${n.color}" data-act="open" data-id="${n.id}">
         <span class="tn">${esc(n.n)}</span><span class="td">${esc(n.dirLabel)}</span></button>`).join('')}</div>`
-      : `<div class="empty">${S.view==='names' && P().dirs.length ? '' : '—'}</div>`}
+      : `<div class="empty">${all.length ? 'No names match this length filter.' : (S.view==='names' && P().dirs.length ? '' : '—')}</div>`}
     <div class="inline"><input id="own" placeholder="+"><button class="ghost sm" data-act="add-own">Add</button></div>
     <div class="bar"><button class="ghost" data-act="view" data-view="directions">←</button>
       <button class="black" data-act="view" data-view="shortlist" ${shortlisted().length?'':'disabled'}>Next →</button></div>`;
@@ -414,7 +424,12 @@ views.detail = () => {
   const images = n.visualImages || [];
   return `
     <div class="row"><button class="ghost sm" data-act="view" data-view="names">←</button><span class="pill ${n.status}">${n.status}</span></div>
-    <div class="hero" style="--c:${n.color}"><div class="bigname">${esc(n.n)}</div><div class="mean">${esc(n.m)}</div></div>
+    <div class="hero" style="--c:${n.color}"><div class="bigname">${esc(n.n)}</div><div class="mean">${esc(n.m)}</div>
+      <div class="row" style="margin-top:8px;gap:6px">
+        <button class="ghost sm" data-act="pronounce" data-val="en-GB" data-name="${esc(n.n)}">🔊 British</button>
+        <button class="ghost sm" data-act="pronounce" data-val="en-US" data-name="${esc(n.n)}">🔊 American</button>
+      </div>
+      ${availabilityHTML(n)}</div>
     <div class="block"><div class="row"><span class="lbl">Variations</span><span class="grow"></span>
       <button class="ghost sm" data-act="similar">Similar</button><button class="ghost sm" data-act="newel">New</button></div>
       <div class="chips">${(n.variants||[]).map(v => `<button class="var" data-act="open-variant" data-val="${esc(v)}">${esc(v)}</button>`).join('')}</div></div>
@@ -434,6 +449,18 @@ views.detail = () => {
       <button class="danger sm ${decision&&decision.action==='rejected'?'suggested':''}" data-act="set-status" data-val="rejected">${T('reject')}</button>
     </div>`;
 };
+// Quick domain/trademark badge computed automatically at generation time (server.js's
+// quickAvailability), shown immediately in the hero - no separate "Research" click needed just to
+// learn whether the domain's taken. The full Research section below still does the deeper,
+// multi-source report (similar brands, social, etc.) on demand.
+function availabilityHTML(n){
+  const av = n.availability;
+  if (!av) return '<div class="row" style="margin-top:6px"><span class="pill Pending">Checking availability…</span></div>';
+  return `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:6px">
+    <span class="pill ${av.domain||'Pending'}">Domain: ${av.domain === 'Clear' ? '✔ Available' : av.domain === 'Review' ? '✘ Taken' : 'Pending'}</span>
+    <span class="pill ${av.trademark||'Pending'}">Trademark: ${av.trademark === 'Clear' ? '✔ Clear' : av.trademark === 'Review' ? '⚠ Review' : 'Pending'}</span>
+  </div>`;
+}
 function researchHTML(r){
   return `
     <div class="row"><div class="verdict ${r.verdict}">${({Go:'GO',Check:'CHECK',Stop:'STOP'})[r.verdict]}</div><span class="grow"></span><span class="count">${esc(r.date)}</span></div>
@@ -650,6 +677,18 @@ async function doAct(a, t, snap){
       S.namesLoading = false;
       break;
     }
+    // Same 'regenerate' server action as goto-names - drops the current suggested batch for the
+    // selected directions and asks the AI fresh for a full new set - but triggered from a button
+    // right on the Names page itself, so redoing a batch doesn't mean navigating back to
+    // Directions and forward again.
+    case 'regen': {
+      S.namesLoading = true; render();
+      try { upsert(await api('POST', `/projects/${p.id}/names`, {action:'regenerate'})); }
+      catch(e) { toast(e.message); }
+      S.namesLoading = false;
+      break;
+    }
+    case 'len-filter': S.lenFilter = t.dataset.val; break;
     case 'mic': return toggleMic();
     case 'understand': {
       const r = await api('POST', `/projects/${p.id}/understand`, {text: p.brief});
@@ -825,6 +864,18 @@ document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]');
   if (!t || t.disabled) return;
   if (t.dataset.act === 'open-project' && t.tagName === 'ARTICLE' && e.detail === 0) {}
+  // Pronunciation is instant, local, client-only speech synthesis - no server round trip, so it
+  // bypasses act()'s busy-overlay entirely rather than flashing a loading state for something
+  // that completes in the same tick.
+  if (t.dataset.act === 'pronounce') {
+    if (!('speechSynthesis' in window)) { toast('Speech playback isn\'t supported in this browser.'); return; }
+    const text = t.dataset.name || ''; if (!text) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = t.dataset.val || 'en-US';
+    speechSynthesis.speak(u);
+    return;
+  }
   const snap = snapshotFor(t.dataset.act, t);
   act(() => doAct(t.dataset.act, t, snap), BUSY_MSG[t.dataset.act]);
 });

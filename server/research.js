@@ -30,7 +30,7 @@ const pending = (id, item, source) => ({ id, label: LABEL[id], status: 'Pending'
 const clean = (name) => (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 // ---------- Domain: RDAP across a few common TLDs ----------
-const DOMAIN_TLDS = ['com', 'io', 'ai', 'co', 'net'];
+const DOMAIN_TLDS = ['com', 'in', 'io', 'ai', 'co', 'net'];
 async function rdapOne(domain) {
   try {
     const r = await fetch(`https://rdap.org/domain/${domain}`, {

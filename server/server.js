@@ -217,7 +217,7 @@ function addName(p, dir, n, m, extra = {}) {
   const d = dirInfo(p, dir);
   const obj = {
     id: uid('n'), dir, dirLabel: d ? d.label : 'Your names', color: d ? d.color : '#000',
-    n, m, status: 'suggested', visual: '', visualImages: [], visualError: '', variants: [], research: null, ...extra
+    n, m, status: 'suggested', visual: '', visualImages: [], visualError: '', variants: [], research: null, availability: null, ...extra
   };
   p.names.push(obj); return obj;
 }
@@ -256,11 +256,25 @@ async function mapLimit(items, limit, fn) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
 }
+// Quick, fast availability signal for exactly one name - domain (RDAP, .com/.in/etc, see
+// research.js's DOMAIN_TLDS) and US trademark (USPTO) - run right at generation time instead of
+// the user clicking into Research for each name one by one afterward. Deliberately NOT the full
+// research.run() (which also does similar-brands/social/sound/origin - slower, and those stay a
+// deliberate on-demand deep-dive). Never throws: an unreachable registry shows as "Pending", not
+// a failure that blocks the name from appearing.
+async function quickAvailability(name) {
+  const [d, t] = await Promise.all([
+    research.rdap(name).catch(e => ({ status: 'Pending', items: [e.message] })),
+    research.uspto(name).catch(e => ({ status: 'Pending', items: [e.message] }))
+  ]);
+  return { domain: d.status, domainItems: d.items, trademark: t.status, trademarkItems: t.items, checkedAt: now() };
+}
 async function generateMoreFor(p, dir, count) {
   const d = dirInfo(p, dir); if (!d) return { added: 0, lastError: null };
   const context = buildContext(p, dir);
   let got = 0;
   let lastError = null;
+  const added = []; // name objects created in this call, so availability is only checked once per name
   if (llmReady()) {
     const styleDesc = d.hint ? `${d.label} — ${d.hint}` : d.label;
     const chunks = [];
@@ -279,7 +293,7 @@ async function generateMoreFor(p, dir, count) {
         const key = n.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
-        addName(p, dir, n, m);
+        added.push(addName(p, dir, n, m));
         got++;
       }
     }
@@ -297,14 +311,23 @@ async function generateMoreFor(p, dir, count) {
           const key = n.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
-          addName(p, dir, n, m);
+          added.push(addName(p, dir, n, m));
           got++;
         }
       } catch (e) { lastError = e.message; }
     }
   }
   const need = count - got;
-  if (need > 0) got += generateFor(p, dir, need);
+  if (need > 0) {
+    const before = p.names.length;
+    got += generateFor(p, dir, need);
+    added.push(...p.names.slice(before)); // catalog-pool fallback names get checked too
+  }
+  // Check domain + trademark for every name just created, concurrency-capped the same way the
+  // generation calls are (RDAP/USPTO rate-limit too, and this runs once per name regardless of
+  // batch size). Awaited here so the names come back to the UI already carrying their
+  // availability badge - no separate per-name "Research" click needed to find out a domain's taken.
+  if (added.length) await mapLimit(added, 4, async nm => { nm.availability = await quickAvailability(nm.n); });
   return { added: got, lastError };
 }
 // Splits a total into `buckets` whole-number parts that sum back to exactly `total`, as evenly
