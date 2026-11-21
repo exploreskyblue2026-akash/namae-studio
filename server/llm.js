@@ -196,6 +196,7 @@ async function generateNames(cfg, dirLabel, context, avoid, count, technique) {
   // One retry before giving up and falling back to the generic catalog pool - a transient
   // timeout or an occasional malformed reply shouldn't be enough to drop to business-unrelated
   // placeholder names when a second try almost always succeeds.
+  let lastError = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const text = await call(cfg, prompt, { temperature: 1.3, json: true, timeoutMs: 35000 });
@@ -207,10 +208,17 @@ async function generateNames(cfg, dirLabel, context, avoid, count, technique) {
         .filter(([n]) => n && !avoid.some(a => a.toLowerCase() === n.toLowerCase()))
         .slice(0, count);
     } catch (e) {
+      lastError = e.message;
       console.error(`AI generateNames failed (attempt ${attempt + 1}/2):`, e.message);
     }
   }
-  return [];
+  // A plain [] loses WHY it failed, which is how "could not generate more" ends up looking like
+  // a mystery instead of (for example) a typo'd model name in Admin. Arrays are objects, so
+  // stashing the real error message here costs nothing and lets the caller surface it verbatim
+  // instead of guessing "probably rate limited" for every kind of failure.
+  const empty = [];
+  empty.lastError = lastError;
+  return empty;
 }
 
 // Image generation via Gemini's native image model ("Nano Banana"). Imagen is retired; this is
