@@ -574,7 +574,7 @@ async function loadLogs(){
 }
 
 /* ============ actions ============ */
-async function doAct(a, t){
+async function doAct(a, t, snap){
   const p = P();
   const save = body => api('PUT', `/projects/${p.id}`, body).then(upsert);
   switch (a) {
@@ -628,15 +628,15 @@ async function doAct(a, t){
       const v=t.dataset.val; upsert(await save({segments: p.segments.includes(v) ? p.segments.filter(x=>x!==v) : [...p.segments, v]})); break;
     }
     case 'add-class': {
-      const v=($('#clsin')?.value||'').trim(); if(!v) return;
+      const v = (snap && snap.v) || ($('#clsin')?.value||'').trim(); if(!v) return;
       upsert(await save({classes:[...new Set([...p.classes, v])]})); break;
     }
     case 'add-seg': {
-      const v=($('#segin')?.value||'').trim(); if(!v) return;
+      const v = (snap && snap.v) || ($('#segin')?.value||'').trim(); if(!v) return;
       upsert(await save({segments:[...new Set([...p.segments, v])]})); break;
     }
     case 'add-ref': {
-      const v=($('#refin')?.value||'').trim(); if(!v) return;
+      const v = (snap && snap.v) || ($('#refin')?.value||'').trim(); if(!v) return;
       upsert(await save({refs:[...p.refs, {v, t:'like'}]})); break;
     }
     case 'toggle-ref': upsert(await save({refs: p.refs.map((r,i)=> i==+t.dataset.i ? {v:r.v, t:r.t==='like'?'avoid':'like'} : r)})); break;
@@ -648,7 +648,7 @@ async function doAct(a, t){
     case 'reshuffle': upsert(await api('POST', `/projects/${p.id}/names`, {action:'reshuffle'})); break;
     case 'more': upsert(await api('POST', `/projects/${p.id}/names`, {action:'more'})); break;
     case 'add-own': {
-      const v=($('#own')?.value||'').trim(); if(!v) return;
+      const v = (snap && snap.v) || ($('#own')?.value||'').trim(); if(!v) return;
       upsert(await api('POST', `/projects/${p.id}/names`, {action:'own', n:v})); break;
     }
     case 'open': S.selected = t.dataset.id; S.view = 'detail'; break;
@@ -686,12 +686,13 @@ async function doAct(a, t){
     case 'acc-tab': S.accTab = t.dataset.val; S.view = 'account'; if (S.accTab === 'admin') await loadAdmin(); break;
     case 'admin-tab': S.adminTab = t.dataset.val; if (S.adminTab === 'activity') await loadLogs(); break;
     case 'user-add': {
-      await api('POST', '/admin/users', {email:$('#nu-email').value, name:$('#nu-name').value, role:$('#nu-role').value, password:$('#nu-pw').value});
+      const d = snap || {email:$('#nu-email')?.value, name:$('#nu-name')?.value, role:$('#nu-role')?.value, password:$('#nu-pw')?.value};
+      await api('POST', '/admin/users', d);
       toast('User added'); await loadAdmin(); break;
     }
     case 'user-active': await api('PATCH', `/admin/users/${t.dataset.id}`, {active: t.dataset.val === 'true'}); await loadAdmin(); break;
     case 'user-pw': {
-      const pw = document.querySelector(`[data-upw="${t.dataset.id}"]`).value;
+      const pw = (snap && snap.pw) ?? document.querySelector(`[data-upw="${t.dataset.id}"]`)?.value;
       await api('PATCH', `/admin/users/${t.dataset.id}`, {password: pw}); toast('Password set'); break;
     }
     case 'clear-key': S.admin.config = await api('PUT', '/admin/config', {clear:[t.dataset.val]}); break;
@@ -700,14 +701,17 @@ async function doAct(a, t){
       const el = $('#test-' + t.dataset.val); if (el) el.textContent = r.message; break;
     }
     case 'save-config': {
-      const keys = {}; document.querySelectorAll('[data-key]').forEach(i => { if (i.value.trim()) keys[i.dataset.key] = i.value.trim(); });
-      const sources = {}; document.querySelectorAll('[data-src]').forEach(i => { sources[i.dataset.src] = i.checked; });
-      const provEl = $('#llmProvider'), orEl = $('#llmOpenrouterModel');
-      S.admin.config = await api('PUT', '/admin/config', {keys, sources, llm:{model: $('#llmModel').value, provider: provEl ? provEl.value : undefined, openrouterModel: orEl ? orEl.value : undefined}});
+      // All values below are read from `snap`, captured synchronously at click time, BEFORE
+      // act() re-rendered the page for the busy indicator - a plain innerHTML re-render rebuilds
+      // every input/select from scratch, which silently discarded whatever had just been typed
+      // or picked (the just-typed API key, the just-selected provider) if read only here, after
+      // the fact. This was the actual cause of "key not saving" / "dropdown reverting to Gemini".
+      const d = snap || {};
+      S.admin.config = await api('PUT', '/admin/config', {keys: d.keys||{}, sources: d.sources||{}, llm:{model: d.model, provider: d.provider, openrouterModel: d.openrouterModel}});
       S.llmReady = S.admin.config.llmReady; toast('Saved'); break;
     }
     case 'save-text': {
-      const uiText = {}; document.querySelectorAll('[data-text]').forEach(i => { uiText[i.dataset.text] = i.value; });
+      const uiText = (snap && snap.uiText) || {};
       S.uiText = await api('PUT', '/admin/ui-text', {uiText});
       S.admin.config = await api('GET', '/admin/config'); toast('Text saved'); break;
     }
@@ -722,17 +726,43 @@ const BUSY_MSG = {
   understand: 'Thinking…', confirm: 'Getting suggestions…', 'goto-names': 'Generating names…',
   'ai-suggest': 'Getting suggestions…', 'ai-suggest-dirs': 'Getting suggestions…', similar: 'Generating…', newel: 'Generating…'
 };
+// act() re-renders the whole page immediately (for the busy indicator) BEFORE the action itself
+// runs - a plain innerHTML rebuild recreates every input/select from current state, discarding
+// anything the person just typed or picked that hasn't been saved yet. So any action that needs
+// a live form value must capture it HERE, synchronously, before act()/render() runs - never by
+// re-querying the DOM from inside doAct's case body, which only sees the post-wipe DOM by then.
+function snapshotFor(action, t){
+  switch (action) {
+    case 'add-class': return { v: ($('#clsin')?.value||'').trim() };
+    case 'add-seg': return { v: ($('#segin')?.value||'').trim() };
+    case 'add-ref': return { v: ($('#refin')?.value||'').trim() };
+    case 'add-own': return { v: ($('#own')?.value||'').trim() };
+    case 'user-add': return { email: $('#nu-email')?.value, name: $('#nu-name')?.value, role: $('#nu-role')?.value, password: $('#nu-pw')?.value };
+    case 'user-pw': return { pw: document.querySelector(`[data-upw="${t.dataset.id}"]`)?.value };
+    case 'save-config': {
+      const keys = {}; document.querySelectorAll('[data-key]').forEach(i => { if (i.value.trim()) keys[i.dataset.key] = i.value.trim(); });
+      const sources = {}; document.querySelectorAll('[data-src]').forEach(i => { sources[i.dataset.src] = i.checked; });
+      return { keys, sources, model: $('#llmModel')?.value, provider: $('#llmProvider')?.value, openrouterModel: $('#llmOpenrouterModel')?.value };
+    }
+    case 'save-text': {
+      const uiText = {}; document.querySelectorAll('[data-text]').forEach(i => { uiText[i.dataset.text] = i.value; });
+      return { uiText };
+    }
+    default: return null;
+  }
+}
 document.addEventListener('click', e => {
   if (S.busy) return;
   const t = e.target.closest('[data-act]');
   if (!t || t.disabled) return;
   if (t.dataset.act === 'open-project' && t.tagName === 'ARTICLE' && e.detail === 0) {}
-  act(() => doAct(t.dataset.act, t), BUSY_MSG[t.dataset.act]);
+  const snap = snapshotFor(t.dataset.act, t);
+  act(() => doAct(t.dataset.act, t, snap), BUSY_MSG[t.dataset.act]);
 });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const map = {own:'add-own', refin:'add-ref', segin:'add-seg', clsin:'add-class'};
-  if (map[e.target.id]) { e.preventDefault(); act(() => doAct(map[e.target.id], e.target)); }
+  if (map[e.target.id]) { e.preventDefault(); const snap = snapshotFor(map[e.target.id], e.target); act(() => doAct(map[e.target.id], e.target, snap)); }
   if (e.target.matches && e.target.matches('.pcard[data-act]')) { act(() => doAct('open-project', e.target)); }
 });
 document.addEventListener('change', e => {
