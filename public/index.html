@@ -138,6 +138,17 @@ textarea{width:100%;min-height:130px;resize:vertical;font-size:16px;line-height:
 .pill.shortlisted{background:var(--pink);color:#fff}
 .pill.suggested,.pill.Pending{background:#EEF2F7;color:var(--muted)}
 .prosc{font-size:14px;line-height:1.7}
+.pitems{margin:4px 0 0;padding-left:16px;font-size:12px;color:var(--ink);line-height:1.55}
+.pnote{display:block;font-size:10px;color:#93A0B4;font-style:italic;margin-top:4px}
+.dbwrap{display:flex;flex-direction:column;gap:6px;margin:4px 0 2px;padding:12px 14px;background:#fff;border:1px solid var(--edge);border-radius:10px}
+.dbtrack{position:relative;height:10px;border-radius:999px;background:linear-gradient(90deg,var(--red) 0%,#FF8A3D 25%,var(--yellow) 50%,#8FE3B0 75%,var(--green) 100%)}
+.dbknob{position:absolute;top:-4px;width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid var(--azure);transform:translateX(-50%);box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.dblabels{display:flex;justify-content:space-between;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.dbcaption{font-size:12px;font-weight:700;color:var(--ink)}
+button.suggested{box-shadow:0 0 0 3px rgba(0,110,255,.35),0 0 14px rgba(0,110,255,.5);animation:sugglow 1.6s ease-in-out infinite}
+@keyframes sugglow{0%,100%{box-shadow:0 0 0 3px rgba(0,110,255,.3),0 0 10px rgba(0,110,255,.4)}50%{box-shadow:0 0 0 5px rgba(0,110,255,.45),0 0 20px rgba(0,110,255,.65)}}
+.visrow{display:flex;gap:10px;flex-wrap:wrap}
+.visrow .preview{flex:1 1 30%;height:140px;min-height:0}
 .bottombar{position:sticky;bottom:10px;margin-top:8px;background:rgba(255,255,255,.95);border:1px solid var(--edge);border-radius:999px;padding:8px 10px;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;box-shadow:0 12px 26px rgba(0,60,160,.16)}
 
 /* shortlist, library */
@@ -325,10 +336,12 @@ function optionList(p, field){
 /* ---- Directions (own page) ---- */
 views.directions = () => {
   const p = P();
+  const custom = p.customDirs || [];
+  const allDirs = [...custom, ...S.catalog.dirs];
   return `
     <h1 class="display">${T('directions_title')}</h1>
-    <div class="dgrid">${S.catalog.dirs.map(d => { const on = p.dirs.includes(d.id); return `
-      <button class="dtile ${on?'on':''}" style="--c:${d.color}" data-act="dir" data-id="${d.id}" aria-pressed="${on}">${esc(d.label)}</button>`; }).join('')}</div>
+    <div class="dgrid">${allDirs.map(d => { const on = p.dirs.includes(d.id); const isCustom = custom.some(c => c.id === d.id); return `
+      <button class="dtile ${on?'on':''}" style="--c:${d.color}" data-act="dir" data-id="${d.id}" aria-pressed="${on}" title="${esc(d.hint||'')}">${isCustom?'<span class="td" style="display:block;font-size:9px;opacity:.65;margin-bottom:4px">FOR THIS BUSINESS</span>':''}${esc(d.label)}</button>`; }).join('')}</div>
     <div class="bar">
       <button class="ghost" data-act="view" data-view="brief">←</button>
       <button class="black" data-act="goto-names" ${p.dirs.length?'':'disabled'}>Next →</button></div>`;
@@ -361,35 +374,62 @@ views.detail = () => {
   const p = P(); const n = N(S.selected);
   if (!n) { S.view = 'names'; return views.names(); }
   const r = n.research;
+  const decision = r ? decisionInfo(r) : null;
+  const images = n.visualImages || [];
   return `
     <div class="row"><button class="ghost sm" data-act="view" data-view="names">←</button><span class="pill ${n.status}">${n.status}</span></div>
     <div class="hero" style="--c:${n.color}"><div class="bigname">${esc(n.n)}</div><div class="mean">${esc(n.m)}</div></div>
-    <div class="split2">
-      <div class="block"><div class="row"><span class="lbl">Variations</span><span class="grow"></span>
-        <button class="ghost sm" data-act="similar">Similar</button><button class="ghost sm" data-act="newel">New</button></div>
-        <div class="chips">${(n.variants||[]).map(v => `<button class="var" data-act="open-variant" data-val="${esc(v)}">${esc(v)}</button>`).join('')}</div></div>
-      <div class="block"><span class="lbl">Visual</span>
-        <div class="inline"><input id="visdir" value="${esc(n.visual)}" placeholder="Style" style="flex:1"><button class="ghost sm" data-act="visualise">Go</button></div>
-        ${n.visualImage ? `<div class="preview img"><img src="${esc(n.visualImage)}" alt="${esc(n.n)} visual"></div>`
-          : n.visualError ? `<div class="preview err">${esc(n.visualError)}</div>`
-          : n.visual ? `<div class="preview">${esc(n.n)}</div>` : ''}</div>
-    </div>
+    <div class="block"><div class="row"><span class="lbl">Variations</span><span class="grow"></span>
+      <button class="ghost sm" data-act="similar">Similar</button><button class="ghost sm" data-act="newel">New</button></div>
+      <div class="chips">${(n.variants||[]).map(v => `<button class="var" data-act="open-variant" data-val="${esc(v)}">${esc(v)}</button>`).join('')}</div></div>
+    <div class="block"><div class="row"><span class="lbl">Visual</span><span class="grow"></span>
+      <input id="visdir" value="${esc(n.visual)}" placeholder="Style (optional)" style="flex:1;max-width:320px"><button class="ghost sm" data-act="visualise">Go</button></div>
+      ${images.length ? `<div class="visrow">${images.map(img => `<div class="preview img"><img src="${esc(img)}" alt="${esc(n.n)} visual"></div>`).join('')}</div>`
+        : n.visualError ? `<div class="preview err">${esc(n.visualError)}</div>`
+        : ''}</div>
     <div class="block"><div class="row"><span class="lbl">${T('research_title')}</span><span class="grow"></span>
       <button class="black sm" data-act="research">${r ? 'Run again' : 'Run'}</button></div>
       ${r ? researchHTML(r) : ''}</div>
+    ${decision ? decisionBarHTML(decision) : ''}
     <div class="bottombar">
-      <button class="ghost sm" data-act="set-status" data-val="kept" ${n.status==='kept'?'disabled':''}>${T('keep')}</button>
-      <button class="azure sm" data-act="set-status" data-val="shortlisted">${T('shortlist_btn')}</button>
-      <button class="pink sm" data-act="set-status" data-val="locked">${T('lock')}</button>
-      <button class="danger sm" data-act="set-status" data-val="rejected">${T('reject')}</button>
+      <button class="ghost sm ${decision&&decision.action==='kept'?'suggested':''}" data-act="set-status" data-val="kept" ${n.status==='kept'?'disabled':''}>${T('keep')}</button>
+      <button class="azure sm ${decision&&decision.action==='shortlisted'?'suggested':''}" data-act="set-status" data-val="shortlisted">${T('shortlist_btn')}</button>
+      <button class="pink sm ${decision&&decision.action==='locked'?'suggested':''}" data-act="set-status" data-val="locked">${T('lock')}</button>
+      <button class="danger sm ${decision&&decision.action==='rejected'?'suggested':''}" data-act="set-status" data-val="rejected">${T('reject')}</button>
     </div>`;
 };
 function researchHTML(r){
   return `
     <div class="row"><div class="verdict ${r.verdict}">${({Go:'GO',Check:'CHECK',Stop:'STOP'})[r.verdict]}</div><span class="grow"></span><span class="count">${esc(r.date)}</span></div>
     <div class="ptiles">${r.results.map(x => `
-      <div class="ptile ${x.status}"><span class="pl">${esc(x.label)}</span><span class="pill ${x.status}">${x.status}</span><span class="ps">${esc(x.summary)}</span></div>`).join('')}</div>
-    <div class="prosc">${r.pros.length ? `<b>+</b> ${r.pros.map(esc).join(' · ')}<br>` : ''}${r.cons.length ? `<b>–</b> ${r.cons.map(esc).join(' · ')}` : ''}</div>`;
+      <div class="ptile ${x.status}"><span class="pl">${esc(x.label)}</span><span class="pill ${x.status}">${x.status}</span>
+        <ul class="pitems">${(x.items||[]).map(i => `<li>${esc(i)}</li>`).join('')}</ul>
+        ${x.note ? `<span class="pnote">${esc(x.note)}</span>` : ''}</div>`).join('')}</div>`;
+}
+// Scores the research card into a Poor..Excellent band (fraction of checks that came back
+// Clear), and names the shortlist action that band points to - purely informational, the person
+// still has to click the button themselves, but the matching button glows to flag the suggestion.
+function decisionInfo(r){
+  const total = r.results.length || 1;
+  const clear = r.results.filter(x => x.status === 'Clear').length;
+  const blocked = r.results.some(x => x.status === 'Blocked');
+  const frac = blocked ? 0 : clear / total;
+  const bands = [
+    { max: .2, label: 'Poor', action: 'rejected' },
+    { max: .4, label: 'Fair', action: 'kept' },
+    { max: .6, label: 'Good', action: 'kept' },
+    { max: .8, label: 'Very good', action: 'shortlisted' },
+    { max: 1.001, label: 'Excellent', action: 'locked' }
+  ];
+  const band = bands.find(b => frac <= b.max) || bands[bands.length - 1];
+  return { pct: Math.round(frac * 100), label: band.label, action: band.action };
+}
+function decisionBarHTML(d){
+  return `<div class="dbwrap">
+    <div class="dbtrack"><div class="dbknob" style="left:${d.pct}%"></div></div>
+    <div class="dblabels"><span>Poor</span><span>Fair</span><span>Good</span><span>Very good</span><span>Excellent</span></div>
+    <div class="dbcaption">${esc(d.label)} · suggests <b>${esc(({kept:T('keep'),shortlisted:T('shortlist_btn'),locked:T('lock'),rejected:T('reject')})[d.action])}</b></div>
+  </div>`;
 }
 
 /* ---- Shortlist ---- */
@@ -548,8 +588,11 @@ async function doAct(a, t){
       const text = ta ? ta.value : p.restatement;
       if (text.trim().length < 10) { toast('Write one or two sentences first.'); return; }
       upsert(await save({restatement:text, confirmed:true, restating:false}));
-      if (S.llmReady) for (const f of ['classes','segments']) {
-        try { upsert(await api('POST', `/projects/${p.id}/suggest`, {field:f})); } catch(e) { toast(e.message); }
+      if (S.llmReady) {
+        for (const f of ['classes','segments']) {
+          try { upsert(await api('POST', `/projects/${p.id}/suggest`, {field:f})); } catch(e) { toast(e.message); }
+        }
+        try { upsert(await api('POST', `/projects/${p.id}/directions/suggest`)); } catch(e) { toast(e.message); }
       }
       break;
     }

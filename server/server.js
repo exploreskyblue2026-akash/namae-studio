@@ -151,22 +151,28 @@ function newProject(ownerId, name) {
   return {
     id: uid('p'), ownerId, name, created: new Date().toLocaleDateString(),
     brief: '', restatement: '', restating: false, confirmed: false,
-    market: '', classes: [], segments: [], refs: [], dirs: [],
+    market: '', classes: [], segments: [], refs: [], dirs: [], customDirs: [],
     suggest: { classes: [], segments: [] }, names: [], final: null
   };
 }
+// Looks up a direction by id in the fixed catalog first, then in this project's own AI-tailored
+// custom directions (which aren't in the global catalog since they're specific to one business).
+function dirInfo(p, dir) {
+  return C.dirs.find(x => x.id === dir) || (p.customDirs || []).find(x => x.id === dir);
+}
 function addName(p, dir, n, m, extra = {}) {
-  const d = C.dirs.find(x => x.id === dir);
+  const d = dirInfo(p, dir);
   const obj = {
     id: uid('n'), dir, dirLabel: d ? d.label : 'Your names', color: d ? d.color : '#000',
-    n, m, status: 'suggested', visual: '', visualImage: '', visualError: '', variants: [], research: null, ...extra
+    n, m, status: 'suggested', visual: '', visualImages: [], visualError: '', variants: [], research: null, ...extra
   };
   p.names.push(obj); return obj;
 }
 // Pool fallback: used only when the AI isn't connected, or the AI call fails/returns too few.
-// These are generic seed examples, not tailored to any specific brief.
+// These are generic seed examples, not tailored to any specific brief. Custom (AI-tailored)
+// directions have no pool of their own - they rely on the AI entirely, by design.
 function generateFor(p, dir, count) {
-  const d = C.dirs.find(x => x.id === dir); if (!d) return 0;
+  const d = dirInfo(p, dir); if (!d || !d.pool || !d.pool.length) return 0;
   const used = p.names.map(x => x.n.toLowerCase());
   const fresh = d.pool.filter(([n]) => !used.includes(n.toLowerCase())).sort(() => Math.random() - 0.5).slice(0, count);
   fresh.forEach(([n, m]) => addName(p, dir, n, m));
@@ -176,18 +182,31 @@ function generateFor(p, dir, count) {
 // chosen direction's style. Only drops to the generic catalog pool when the AI isn't connected
 // or returns fewer than asked for.
 async function generateMoreFor(p, dir, count) {
-  const d = C.dirs.find(x => x.id === dir); if (!d) return 0;
+  const d = dirInfo(p, dir); if (!d) return 0;
   const context = p.restatement || p.brief || '';
   let got = 0;
   if (llmReady()) {
     const avoid = p.names.map(x => x.n);
-    const pairs = await llm.generateNames(cfg(), d.label, context, avoid, count);
+    const styleDesc = d.hint ? `${d.label} — ${d.hint}` : d.label;
+    const pairs = await llm.generateNames(cfg(), styleDesc, context, avoid, count);
     pairs.forEach(([n, m]) => addName(p, dir, n, m));
     got = pairs.length;
   }
   const need = count - got;
   if (need > 0) got += generateFor(p, dir, need);
   return got;
+}
+// Splits a total into `buckets` whole-number parts that sum back to exactly `total`, as evenly
+// as possible - used so a name-generation run always produces a clean, predictable batch size
+// (e.g. exactly 24, or exactly +8 on "generate more") regardless of how many directions are
+// selected, instead of a number that drifts with rounding.
+function splitCount(total, buckets) {
+  const n = Math.max(1, buckets);
+  const base = Math.floor(total / n);
+  let rem = total - base * n;
+  const out = [];
+  for (let i = 0; i < n; i++) { out.push(base + (rem > 0 ? 1 : 0)); if (rem > 0) rem--; }
+  return out;
 }
 const nameOf = (p, id) => p.names.find(x => x.id === id);
 
@@ -211,7 +230,7 @@ app.put('/api/projects/:id', auth, async (req, res) => {
   ['name', 'brief', 'restatement', 'confirmed', 'restating', 'market', 'classes', 'segments', 'refs', 'dirs'].forEach(k => {
     if (b[k] !== undefined) p[k] = b[k];
   });
-  p.dirs = (Array.isArray(p.dirs) ? p.dirs : []).filter(d => C.dirs.some(x => x.id === d));
+  p.dirs = (Array.isArray(p.dirs) ? p.dirs : []).filter(d => C.dirs.some(x => x.id === d) || (p.customDirs || []).some(x => x.id === d));
   save(); res.json(p);
 });
 
@@ -245,23 +264,47 @@ app.post('/api/projects/:id/suggest', auth, async (req, res) => {
   save(); res.json(p);
 });
 
+// Custom, AI-tailored direction styles for this specific business - shown alongside (never
+// instead of) the fixed catalog directions, so there's always something to pick from.
+const CUSTOM_DIR_COLORS = ['#2FBF71', '#2E8BFF', '#FF6B6B', '#9B6BFF', '#FFD84D', '#FF9A3D'];
+app.post('/api/projects/:id/directions/suggest', auth, async (req, res) => {
+  const p = ownProject(req, res); if (!p) return;
+  if (llmReady() && p.restatement) {
+    try {
+      const context = p.restatement || p.brief || '';
+      const suggestions = await llm.suggestDirections(cfg(), context, 4);
+      p.customDirs = suggestions.map((s, i) => ({
+        id: 'customdir_' + i, label: s.label, hint: s.hint,
+        color: CUSTOM_DIR_COLORS[i % CUSTOM_DIR_COLORS.length], pool: []
+      }));
+    } catch (e) { return res.status(502).json({ error: 'AI direction suggestion failed: ' + e.message }); }
+  }
+  save(); res.json(p);
+});
+
 /* ---------- names ---------- */
 app.post('/api/projects/:id/names', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const b = req.body || {};
   if (b.action === 'generate') await generateMoreFor(p, b.dir, 4);
-  else if (b.action === 'more') await Promise.all(p.dirs.map(d => generateMoreFor(p, d, 3)));
+  else if (b.action === 'more') {
+    // Fixed total of 8 new names per click (a clean multiple of 4, matching the names grid's
+    // 4-per-row layout), split evenly across whichever directions are selected - not "N per
+    // direction", so the total added stays predictable how ever many directions are picked.
+    const counts = splitCount(8, p.dirs.length);
+    await Promise.all(p.dirs.map((d, i) => generateMoreFor(p, d, counts[i])));
+  }
   else if (b.action === 'regenerate') {
     // Always ask the AI fresh for the currently selected directions. Drops previously
     // AI-suggested names for those directions first (keeping anything the user has actually
     // acted on — kept/shortlisted/locked/rejected) so the page never shows stale/old output,
     // and generates a brand-new full batch every single time this is called.
     p.names = p.names.filter(x => !(x.status === 'suggested' && p.dirs.includes(x.dir)));
-    // More directions are now available to pick from, so the per-direction count is capped a
-    // little lower as more get selected, but the floor is raised (5, not 4) and the overall
-    // target batch size is bigger (16, not 10) so a run gives noticeably more to choose from.
-    const perDir = Math.max(5, Math.round(16 / Math.max(1, p.dirs.length)));
-    await Promise.all(p.dirs.map(d => generateMoreFor(p, d, perDir)));
+    // First run targets 24 names total (a clean multiple of 4), or more if many directions are
+    // selected (at least 2 per direction), split evenly so the total is always predictable.
+    const total = Math.max(24, p.dirs.length * 2);
+    const counts = splitCount(total, p.dirs.length);
+    await Promise.all(p.dirs.map((d, i) => generateMoreFor(p, d, counts[i])));
   }
   else if (b.action === 'reshuffle') p.names.sort(() => Math.random() - 0.5);
   else if (b.action === 'own') {
@@ -295,7 +338,7 @@ app.post('/api/projects/:id/names/:nid/variations', auth, async (req, res) => {
   let names = [];
   if (llmReady()) {
     const context = p.restatement || p.brief || '';
-    const pairs = await llm.generateVariations(cfg(), n.n, n.m, kind, context);
+    const pairs = await llm.generateVariations(cfg(), n.n, n.m, kind, context, n.dirLabel);
     names = pairs.map(([v]) => v);
   }
   if (names.length < wantCount) {
@@ -321,13 +364,31 @@ app.post('/api/projects/:id/names/:nid/visualise', auth, async (req, res) => {
   const style = String((req.body || {}).style || '').trim().slice(0, 200);
   n.visual = style;
   n.visualError = '';
+  n.visualImages = [];
   if (!llmReady()) { n.visualError = 'AI is not connected. Add a Gemini key in Admin.'; save(); return res.json(p); }
   const context = p.restatement || p.brief || '';
-  const prompt = `Create a single clean brand visual / logo concept image for a brand named "${n.n}" (${n.m}). Business: ${context || 'not specified'}. Visual style: ${style || 'modern, minimal, professional'}. The image should look like a brand mark or mood board tile: no surrounding text or mockup frame, just the visual itself.`;
+  // A strong, consistent base prompt is always built from the actual brand data (name, meaning,
+  // direction, business) regardless of what the user types in the style box - that field only
+  // adds an optional extra direction on top, so quality never depends on the user happening to
+  // write a good prompt themselves. Three distinct variation angles are requested so the 3
+  // outputs are genuinely different concepts rather than 3 near-identical renders of one idea.
+  const base = `Professional brand mark / logo concept for a brand named "${n.n}". Meaning behind the name: ${n.m}. Business: ${context || 'not specified'}. Brand direction/style: ${n.dirLabel || 'modern'}.` +
+    (style ? ` Additional direction from the brand owner: ${style}.` : ' Use a clean, premium, modern aesthetic appropriate to the business.') +
+    ' The image must be a single standalone logo/brand-mark concept on a plain or softly colored background: no mockup frame, no surrounding UI chrome, no extra text beyond the brand name if it appears in the mark itself.';
+  const variants = [
+    'Variation: a bold, simple icon-first mark that could stand alone without the wordmark.',
+    'Variation: a wordmark-led treatment (stylized typography) with a small icon accent.',
+    'Variation: an abstract symbol distinct in concept from the first two, same brand feel.'
+  ];
   try {
-    n.visualImage = await llm.generateImage(cfg(), prompt);
+    const results = await Promise.allSettled(variants.map(v => llm.generateImage(cfg(), `${base} ${v}`)));
+    n.visualImages = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    if (!n.visualImages.length) {
+      const failed = results.find(r => r.status === 'rejected');
+      n.visualError = failed ? failed.reason.message : 'Image generation failed.';
+      console.error('Image generation failed for all variants:', n.visualError);
+    }
   } catch (e) {
-    n.visualImage = '';
     n.visualError = e.message;
     console.error('Image generation failed:', e.message);
   }

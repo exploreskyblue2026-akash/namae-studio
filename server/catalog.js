@@ -94,6 +94,7 @@ const UI_DEFAULT = {
   confirm: 'Confirm',
   directions_title: 'Directions',
   names_title: 'Names',
+  research_title: 'Availability check',
   shortlist_title: 'Shortlist',
   library_title: 'Library',
   account_title: 'Account',
