@@ -184,6 +184,26 @@ function newProject(ownerId, name) {
 function dirInfo(p, dir) {
   return C.dirs.find(x => x.id === dir) || (p.customDirs || []).find(x => x.id === dir);
 }
+// Builds the business context fed to every AI call that needs to understand the business.
+// Previously every one of these calls (name generation, direction suggestions, variations,
+// research, visuals) only ever saw `p.restatement` - an AI-COMPRESSED two-sentence summary of
+// the user's original brief (see llm.restate) - or the raw brief if restating hadn't run yet.
+// Market and target-segment info the user fills in elsewhere in the project (p.market,
+// p.segments) never reached the naming prompt at all, even though it's exactly the kind of
+// specific detail that pushes a model away from generic names. This folds that in.
+function buildContext(p) {
+  const parts = [];
+  // The raw brief is the richest source (the user's own words, full detail); the restatement is
+  // an AI-compressed 2-sentence paraphrase of it, generated only to show the user "here's what I
+  // understood" - using it as the PRIMARY source for generation (as this used to do) throws away
+  // exactly the specific detail that keeps names from feeling generic. Prefer the original brief;
+  // fall back to the restatement only if the brief is somehow missing.
+  if (p.brief) parts.push(p.brief);
+  else if (p.restatement) parts.push(p.restatement);
+  if (p.market) parts.push(`Target market: ${p.market}`);
+  if (Array.isArray(p.segments) && p.segments.length) parts.push(`Target customer segments: ${p.segments.join(', ')}`);
+  return parts.join('\n');
+}
 function addName(p, dir, n, m, extra = {}) {
   const d = dirInfo(p, dir);
   const obj = {
@@ -229,7 +249,7 @@ async function mapLimit(items, limit, fn) {
 }
 async function generateMoreFor(p, dir, count) {
   const d = dirInfo(p, dir); if (!d) return { added: 0, lastError: null };
-  const context = p.restatement || p.brief || '';
+  const context = buildContext(p);
   let got = 0;
   let lastError = null;
   if (llmReady()) {
@@ -353,7 +373,7 @@ app.post('/api/projects/:id/directions/suggest', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   if (llmReady() && p.restatement) {
     try {
-      const context = p.restatement || p.brief || '';
+      const context = buildContext(p);
       const suggestions = await llm.suggestDirections(cfg(), context, 4);
       p.customDirs = suggestions.map((s, i) => ({
         id: 'customdir_' + i, label: s.label, hint: s.hint,
@@ -433,7 +453,7 @@ app.post('/api/projects/:id/names/:nid/variations', auth, async (req, res) => {
     // One small call PER variation, run in parallel, instead of one call asking for all of
     // them at once - a single batch call tends to produce the same root word with different
     // suffixes (Joinjoi/Jointot/Jointmoi); independent calls give each variation its own idea.
-    const context = p.restatement || p.brief || '';
+    const context = buildContext(p);
     const results = await Promise.all(Array.from({ length: wantCount }, () =>
       llm.generateVariations(cfg(), n.n, n.m, kind, context, n.dirLabel, 1)));
     const seen = new Set();
@@ -457,7 +477,7 @@ app.post('/api/projects/:id/names/:nid/variations', auth, async (req, res) => {
 app.post('/api/projects/:id/names/:nid/research', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const n = nameOf(p, req.params.nid); if (!n) return res.status(404).json({ error: 'Name not found' });
-  const context = p.restatement || p.brief || '';
+  const context = buildContext(p);
   try { n.research = await research.run(n.n, cfg(), llm, context); }
   catch (e) { return res.status(502).json({ error: 'Research failed: ' + e.message }); }
   save(); res.json(p);
@@ -471,7 +491,7 @@ app.post('/api/projects/:id/names/:nid/visualise', auth, async (req, res) => {
   n.visualError = '';
   n.visualImages = [];
   if (!llmReady()) { n.visualError = 'AI is not connected. Add a Gemini key in Admin.'; save(); return res.json(p); }
-  const context = p.restatement || p.brief || '';
+  const context = buildContext(p);
   // A strong, consistent base prompt is always built from the actual brand data (name, meaning,
   // direction, business) regardless of what the user types in the style box - that field only
   // adds an optional extra direction on top, so quality never depends on the user happening to
