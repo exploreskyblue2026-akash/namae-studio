@@ -256,78 +256,96 @@ async function mapLimit(items, limit, fn) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
 }
-// Quick, fast availability signal for exactly one name - domain (RDAP, .com/.in/etc, see
-// research.js's DOMAIN_TLDS) and US trademark (USPTO) - run right at generation time instead of
-// the user clicking into Research for each name one by one afterward. Deliberately NOT the full
-// research.run() (which also does similar-brands/social/sound/origin - slower, and those stay a
-// deliberate on-demand deep-dive). Never throws: an unreachable registry shows as "Pending", not
-// a failure that blocks the name from appearing.
-async function quickAvailability(name) {
-  const [d, t] = await Promise.all([
-    research.rdap(name).catch(e => ({ status: 'Pending', items: [e.message] })),
-    research.uspto(name).catch(e => ({ status: 'Pending', items: [e.message] }))
-  ]);
-  return { domain: d.status, domainItems: d.items, trademark: t.status, trademarkItems: t.items, checkedAt: now() };
-}
+// Domain is the hard gate now (per explicit request: "only domain available options... .com and
+// .in available"); trademark stays informational only, attached after the fact, never blocking a
+// name from appearing. A name only makes it into p.names once research.checkComIn() has confirmed
+// BOTH .com and .in are actually free - a registry timeout does NOT count as available (checkComIn
+// only reports bothFree:true when both lookups genuinely resolved to free), so a name is never
+// shown as a candidate on missing/uncertain data.
 async function generateMoreFor(p, dir, count) {
   const d = dirInfo(p, dir); if (!d) return { added: 0, lastError: null };
   const context = buildContext(p, dir);
   let got = 0;
   let lastError = null;
-  const added = []; // name objects created in this call, so availability is only checked once per name
+  let domainRejected = 0; // candidates the AI produced that got discarded for a taken .com/.in
+  const added = []; // name objects actually accepted, so trademark is only checked once per name
+  const seen = new Set(p.names.map(x => x.n.toLowerCase()));
+
   if (llmReady()) {
     const styleDesc = d.hint ? `${d.label} — ${d.hint}` : d.label;
-    const chunks = [];
-    let remaining = count;
-    while (remaining > 0) { chunks.push(Math.min(NAME_CHUNK, remaining)); remaining -= NAME_CHUNK; }
-    // Each chunk is assigned a different naming technique (short & punchy, blend, clipped word,
-    // foreign root, etc.) in rotation instead of every chunk getting the same generic ask - this
-    // is what actually produces structural variety in a batch (some short and punchy, some
-    // blended, some borrowed) rather than N calls that all tend toward the same safe shape.
     const techs = llm.TECHNIQUE_KEYS || [];
-    const results = await mapLimit(chunks, 3, (c, i) => llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), c, techs[i % techs.length]));
-    const seen = new Set(p.names.map(x => x.n.toLowerCase()));
-    for (const pairs of results) {
-      if (pairs.lastError) lastError = pairs.lastError; // surfaces the real cause (e.g. a bad model name) instead of a generic guess
-      for (const [n, m] of pairs) {
-        const key = n.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        added.push(addName(p, dir, n, m));
-        got++;
-      }
-    }
-    // The parallel fan-out can still come up short (a transient rate limit, a timeout on one
-    // chunk) - one more sequential, single call for exactly the shortfall is far less likely to
-    // hit the same limit than the batch that just did, so try that before giving up to the
-    // catalog pool. This matters most for AI-suggested custom directions, which have an
-    // intentionally empty pool (no fallback at all) - without this, a single failed chunk could
-    // silently cap the whole batch at whatever the other chunks happened to return.
-    if (got < count) {
-      try {
-        const pairs = await llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), count - got, techs[Math.floor(Math.random() * techs.length)]);
-        if (pairs.lastError) lastError = pairs.lastError;
+    // Asking for exactly `count` names and then filtering by domain availability would usually
+    // come up short - a real fraction of short/brandable .com+.in combos are already taken. Each
+    // round below asks for several times the remaining shortfall, checks all of them, keeps only
+    // the ones with both domains free, and loops (bounded) until count is reached or a round
+    // produces nothing new (meaning further rounds won't help either).
+    const MAX_ROUNDS = 5;
+    for (let round = 0; round < MAX_ROUNDS && got < count; round++) {
+      const need = count - got;
+      const askFor = Math.min(need * 3, 16);
+      const chunks = [];
+      let remaining = askFor;
+      while (remaining > 0) { chunks.push(Math.min(NAME_CHUNK, remaining)); remaining -= NAME_CHUNK; }
+      // Each chunk is assigned a different naming technique (short & punchy, blend, clipped word,
+      // foreign root, etc.) in rotation instead of every chunk getting the same generic ask - this
+      // is what actually produces structural variety in a batch rather than N calls that all tend
+      // toward the same safe shape.
+      const results = await mapLimit(chunks, 3, (c, i) => llm.generateNames(cfg(), styleDesc, context, [...seen], c, techs[(round + i) % techs.length]));
+      const candidates = [];
+      for (const pairs of results) {
+        if (pairs.lastError) lastError = pairs.lastError; // surfaces the real cause (e.g. a bad model name) instead of a generic guess
         for (const [n, m] of pairs) {
           const key = n.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
-          added.push(addName(p, dir, n, m));
-          got++;
+          candidates.push([n, m]);
         }
-      } catch (e) { lastError = e.message; }
+      }
+      if (!candidates.length) break; // AI gave nothing new this round - a 6th round won't either
+      const checked = await mapLimit(candidates, 4, async ([n, m]) => ({ n, m, dom: await research.checkComIn(n) }));
+      for (const c of checked) {
+        if (got >= count) break;
+        if (c.dom.bothFree) {
+          added.push(addName(p, dir, c.n, c.m, { availability: { domain: 'Clear', domainItems: c.dom.items } }));
+          got++;
+        } else {
+          domainRejected++;
+        }
+      }
     }
   }
+  // Catalog-pool fallback (only used when the AI isn't connected, or still short after the rounds
+  // above) - a tiny, shared, hardcoded pool, so it isn't worth the same round-trip retry loop;
+  // shown with its own availability badge rather than silently passed through as if guaranteed free.
   const need = count - got;
+  let poolAdded = [];
   if (need > 0) {
     const before = p.names.length;
     got += generateFor(p, dir, need);
-    added.push(...p.names.slice(before)); // catalog-pool fallback names get checked too
+    poolAdded = p.names.slice(before);
+    added.push(...poolAdded);
   }
-  // Check domain + trademark for every name just created, concurrency-capped the same way the
-  // generation calls are (RDAP/USPTO rate-limit too, and this runs once per name regardless of
-  // batch size). Awaited here so the names come back to the UI already carrying their
-  // availability badge - no separate per-name "Research" click needed to find out a domain's taken.
-  if (added.length) await mapLimit(added, 4, async nm => { nm.availability = await quickAvailability(nm.n); });
+  // Pool fallback names skip the accept/reject gate above (too small a pool to retry against),
+  // but still get a real domain badge instead of being left on a perpetual "Pending" placeholder.
+  if (poolAdded.length) {
+    await mapLimit(poolAdded, 4, async nm => {
+      try { const dom = await research.checkComIn(nm.n); nm.availability = { domain: dom.bothFree ? 'Clear' : 'Review', domainItems: dom.items }; }
+      catch (e) { nm.availability = { domain: 'Pending' }; }
+    });
+  }
+  // Trademark is informational only here, attached after acceptance so it never affects which
+  // names made it through the domain gate above.
+  if (added.length) {
+    await mapLimit(added, 4, async nm => {
+      try { const t = await research.uspto(nm.n); nm.availability = { ...nm.availability, trademark: t.status, trademarkItems: t.items }; }
+      catch (e) { nm.availability = { ...nm.availability, trademark: 'Pending' }; }
+    });
+  }
+  // If nothing else explains a shortfall, say plainly that it's because available domains ran
+  // out this round rather than leaving it looking like a generic/unexplained failure.
+  if (!lastError && got < count && domainRejected > 0) {
+    lastError = `${domainRejected} name${domainRejected === 1 ? '' : 's'} generated but rejected - .com or .in was already taken.`;
+  }
   return { added: got, lastError };
 }
 // Splits a total into `buckets` whole-number parts that sum back to exactly `total`, as evenly

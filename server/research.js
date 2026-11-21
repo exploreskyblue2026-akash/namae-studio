@@ -66,6 +66,19 @@ async function rdap(name) {
   return { id: 'domain', label: LABEL.domain, status: primary.free ? 'Clear' : 'Review', items, source: 'RDAP' };
 }
 
+// A focused gate used at name-generation time: is THIS SPECIFIC name available on BOTH .com and
+// .in (the two the person actually cares about for this tool), not just a general "mostly
+// available across several TLDs" signal like rdap() above gives. `bothFree` is only true when
+// both checks actually resolved AND both came back free - a registry timeout or lookup failure on
+// either one does NOT count as available, so a name is never waved through on missing data.
+async function checkComIn(name) {
+  const base = clean(name);
+  if (!base) return { comFree: false, inFree: false, bothFree: false, items: ['No name to check.'] };
+  const [com, in_] = await Promise.all([rdapOne(`${base}.com`), rdapOne(`${base}.in`)]);
+  const items = [com, in_].map(c => `${c.domain} — ${c.free === true ? '✔ Available' : c.free === false ? '✘ Taken' : '? Unknown (registry unreachable)'}`);
+  return { comFree: com.free === true, inFree: in_.free === true, bothFree: com.free === true && in_.free === true, items };
+}
+
 // ---------- Trademark: USPTO's own public search backend, called directly ----------
 // Endpoint and query shape captured live from tmsearch.uspto.gov's own network traffic - this is
 // exactly what the official site sends when a person searches a wordmark there. No API key.
@@ -325,4 +338,4 @@ async function test(source, cfg, llm) {
   return { ok: have, message: have ? 'Key saved. Live EUIPO search needs the product base URL from your dev.euipo.europa.eu dashboard before it can be wired in.' : 'No key saved.' };
 }
 
-module.exports = { run, test, rdap, uspto, socialProbe };
+module.exports = { run, test, rdap, uspto, socialProbe, checkComIn };

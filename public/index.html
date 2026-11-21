@@ -455,9 +455,9 @@ views.detail = () => {
 // multi-source report (similar brands, social, etc.) on demand.
 function availabilityHTML(n){
   const av = n.availability;
-  if (!av) return '<div class="row" style="margin-top:6px"><span class="pill Pending">Checking availability…</span></div>';
+  if (!av) return '<div class="row" style="margin-top:6px"><span class="pill Pending">Checking .com / .in…</span></div>';
   return `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:6px">
-    <span class="pill ${av.domain||'Pending'}">Domain: ${av.domain === 'Clear' ? '✔ Available' : av.domain === 'Review' ? '✘ Taken' : 'Pending'}</span>
+    <span class="pill ${av.domain||'Pending'}">.com + .in: ${av.domain === 'Clear' ? '✔ Both available' : av.domain === 'Review' ? '✘ One or both taken' : 'Pending'}</span>
     <span class="pill ${av.trademark||'Pending'}">Trademark: ${av.trademark === 'Clear' ? '✔ Clear' : av.trademark === 'Review' ? '⚠ Review' : 'Pending'}</span>
   </div>`;
 }
