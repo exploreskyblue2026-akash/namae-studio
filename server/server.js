@@ -235,7 +235,12 @@ async function generateMoreFor(p, dir, count) {
     const chunks = [];
     let remaining = count;
     while (remaining > 0) { chunks.push(Math.min(NAME_CHUNK, remaining)); remaining -= NAME_CHUNK; }
-    const results = await mapLimit(chunks, 3, c => llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), c));
+    // Each chunk is assigned a different naming technique (short & punchy, blend, clipped word,
+    // foreign root, etc.) in rotation instead of every chunk getting the same generic ask - this
+    // is what actually produces structural variety in a batch (some short and punchy, some
+    // blended, some borrowed) rather than N calls that all tend toward the same safe shape.
+    const techs = llm.TECHNIQUE_KEYS || [];
+    const results = await mapLimit(chunks, 3, (c, i) => llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), c, techs[i % techs.length]));
     const seen = new Set(p.names.map(x => x.n.toLowerCase()));
     for (const pairs of results) {
       for (const [n, m] of pairs) {
@@ -254,7 +259,7 @@ async function generateMoreFor(p, dir, count) {
     // silently cap the whole batch at whatever the other chunks happened to return.
     if (got < count) {
       try {
-        const pairs = await llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), count - got);
+        const pairs = await llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), count - got, techs[Math.floor(Math.random() * techs.length)]);
         for (const [n, m] of pairs) {
           const key = n.toLowerCase();
           if (seen.has(key)) continue;

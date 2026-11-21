@@ -173,11 +173,26 @@ async function suggestDirections(cfg, context, count = 4) {
 // Generates fresh on-brand name candidates when the fixed catalog pool runs out.
 // Returns an array of [name, meaning] pairs, or [] on any failure (caller falls back silently,
 // but the error is logged server-side so a persistent failure shows up in the Render logs).
-async function generateNames(cfg, dirLabel, context, avoid, count) {
+// Naming techniques real branding studios actually rotate through. Previously every call asked
+// for the same generic "brandable name" with no structural guidance, which is exactly how you
+// get bland, samey output (and the AI's own default bias toward safe compound-word coinages).
+// Assigning one technique per call (see generateMoreFor's TECHNIQUES cycling) forces genuine
+// structural variety across a batch - some short and punchy, some blended, some borrowed - rather
+// than leaving it to chance that one long generic prompt happens to produce a mix.
+const TECHNIQUES = {
+  punchy: 'A SHORT, PUNCHY invented word - 4 to 7 letters, one or two syllables, easy to say out loud and spell from hearing it once (think: Nike, Zoom, Oro, Vibe). No compound of two full words.',
+  blend: 'A BLEND/PORTMANTEAU of two words relevant to the business (fuse the start of one word with the end of another, or overlap a shared sound) - not just the two words stuck together unchanged.',
+  real_word: 'A REAL, EXISTING word (English or any other language) used in an unexpected, evocative way for this specific business - not a generic/obvious synonym for what the business does.',
+  clipped: 'A CLIPPED/TRUNCATED word - take a longer word connected to the business and cut it down to something crisp and short, the way "Google" came from "googol" or "Lyft" clips "lift".',
+  foreign: 'A word or root borrowed from a language other than English that fits the meaning or feeling of the business, adapted to be easy for an English speaker to pronounce and spell.',
+  compound: 'A tight compound of two short, relevant words mashed into one - but genuinely tight and brandable, not just two dictionary words taped together.'
+};
+async function generateNames(cfg, dirLabel, context, avoid, count, technique) {
   // A random seed phrase pushes the model off a deterministic/cached-feeling answer, since
   // the same business + direction would otherwise tend to produce the same obvious names.
   const seed = Math.random().toString(36).slice(2, 8);
-  const prompt = `Business: ${context}\nDirection/style: ${dirLabel}\nInvent ${count} brand-new, short, brandable names that fit this style and this specific business (not a generic placeholder business). Be genuinely varied and creative, not the most obvious or generic option. Do not reuse any of these existing names: ${avoid.join(', ') || 'none'}. (Creativity seed: ${seed}; ignore this number, it is only to vary your output.)\nFor "meaning", give a SHORT phrase (4-8 words) showing the word's fusion or root - not a sentence. Example style: "Lumen + aura: a glow around you" or "Craft + haven, a safe making-place".\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"short phrase"}, ...]`;
+  const techLine = technique && TECHNIQUES[technique] ? `\nNaming technique to use for every one of these ${count} names: ${TECHNIQUES[technique]}` : '';
+  const prompt = `Business: ${context}\nDirection/style: ${dirLabel}\nInvent ${count} brand-new, brandable names that fit this style and this specific business (not a generic placeholder business).${techLine}\nQuality bar: imagine a real branding studio pitching these to the founder - reject anything that sounds like a random startup-name-generator output (avoid piling on suffixes like "-ify", "-ly", "-io", "-eo", "-ster" just to make a word sound techy). Each name should be easy to say out loud, easy to spell after hearing it once, and should not need the meaning explained to feel appealing.\nBe genuinely varied and creative, not the most obvious or generic option. Do not reuse any of these existing names: ${avoid.join(', ') || 'none'}. (Creativity seed: ${seed}; ignore this number, it is only to vary your output.)\nFor "meaning", give a SHORT phrase (4-8 words) showing the word's fusion or root - not a sentence. Example style: "Lumen + aura: a glow around you" or "Craft + haven, a safe making-place".\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"short phrase"}, ...]`;
   // One retry before giving up and falling back to the generic catalog pool - a transient
   // timeout or an occasional malformed reply shouldn't be enough to drop to business-unrelated
   // placeholder names when a second try almost always succeeds.
@@ -232,7 +247,7 @@ async function generateVariations(cfg, name, meaning, kind, context, dirLabel, c
     : `Invent ${n} variation${n > 1 ? 's' : ''} of the brand name "${name}" (meaning: ${meaning}) by tweaking its spelling or sound — similar enough to still feel like the same name, but each one meaningfully different from the others, not just different suffixes on the same root.`;
   const seed = Math.random().toString(36).slice(2, 8);
   const styleLine = dirLabel ? `\nStay aligned with this name's own style/direction: ${dirLabel}.` : '';
-  const prompt = `Business: ${context || 'not specified'}\n${ask}${styleLine}\n(Creativity seed: ${seed}; ignore this number.)\nFor "meaning", give a SHORT phrase (4-8 words), not a sentence.\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"short phrase"}, ...]`;
+  const prompt = `Business: ${context || 'not specified'}\n${ask}${styleLine}\nQuality bar: each one should stay short, easy to say and spell, and genuinely brandable - not a generic startup-name-generator-style tweak (avoid defaulting to suffixes like "-ify", "-ly", "-io", "-eo" just to make it sound different).\n(Creativity seed: ${seed}; ignore this number.)\nFor "meaning", give a SHORT phrase (4-8 words), not a sentence.\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"short phrase"}, ...]`;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const text = await call(cfg, prompt, { temperature: 1.2, json: true, timeoutMs: 30000 });
@@ -247,4 +262,4 @@ async function generateVariations(cfg, name, meaning, kind, context, dirLabel, c
   return [];
 }
 
-module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, checkDomainAI, checkTrademarkAI, checkSocialAI, extractBrandMatches, suggestDirections, generateNames, generateImage, generateVariations };
+module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, checkDomainAI, checkTrademarkAI, checkSocialAI, extractBrandMatches, suggestDirections, generateNames, generateImage, generateVariations, TECHNIQUE_KEYS: Object.keys(TECHNIQUES) };
