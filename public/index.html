@@ -221,7 +221,7 @@ const S = {
   view: 'login', selected: null, libMode: 'projects', accTab: 'profile', adminTab: 'users',
   admin: { users: [], logs: [], logUser: '', config: null }, busy: false, busyMsg: '', namesLoading: false
 };
-let rec = null, listening = false;
+let rec = null, listening = false, micUserStopped = true;
 
 /* ============ helpers ============ */
 const $ = s => document.querySelector(s);
@@ -527,7 +527,7 @@ function profileHTML(){
 }
 function adminHTML(){
   const A = S.admin; const sub = S.adminTab;
-  const subs = [['users','Users'],['activity','Activity'],['connections','Connections'],['text','Text']];
+  const subs = [['users','Users'],['activity','Activity'],['connections','Connections'],['text','Text'],['founder','Founder']];
   let body = '';
   if (sub === 'users') body = `
     <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Password</th></tr></thead><tbody>
@@ -567,6 +567,20 @@ function adminHTML(){
     const c = A.config;
     body = c ? `${Object.keys(c.uiText).map(k => `<div class="krow"><span class="lbl">${esc(k)}</span><input data-text="${k}" value="${esc(c.uiText[k])}" style="flex:1;min-width:260px"></div>`).join('')}
       <div class="row end"><button class="black sm" data-act="save-text">Save</button></div>` : '<div class="empty">…</div>';
+  } else if (sub === 'founder') {
+    const c = A.config;
+    // Feeds the "Founder-style" naming direction. Text is saved straight into Admin config;
+    // an uploaded photo/screenshot is read by the AI (Gemini vision) server-side and the
+    // extracted description is appended to the same text, rather than storing the image itself.
+    body = c ? `
+      <div style="font-size:12px;color:#777;margin-bottom:6px">Add the real founder's name, story or personality here - the Founder-style direction uses this instead of inventing a generic placeholder founder.</div>
+      <textarea id="founderInfoTa" placeholder="e.g. Founded by Asha Rao, a former textile engineer who started this after..." style="min-height:110px;width:100%">${esc(c.founderInfo||'')}</textarea>
+      <div class="row" style="margin-top:6px">
+        <label class="ghost sm" for="founderImgInput" style="cursor:pointer">Upload photo / text image</label>
+        <input type="file" id="founderImgInput" data-founderimg accept="image/*" style="display:none">
+        <span id="founderImgStatus" style="font-size:12px;color:#777;margin-left:8px"></span>
+      </div>
+      <div class="row end"><button class="black sm" data-act="save-founder">Save</button></div>` : '<div class="empty">…</div>';
   }
   return `<div class="admin">
     <div class="seg" style="margin-bottom:6px">${subs.map(([id,l]) => `<button class="${sub===id?'on':''}" data-act="admin-tab" data-val="${id}">${l}</button>`).join('')}</div>
@@ -574,10 +588,23 @@ function adminHTML(){
 }
 
 /* ============ voice ============ */
+// Chrome/Edge's SpeechRecognition silently ends a session after a pause in speech (or, on some
+// builds, after roughly a minute of continuous audio) even with `continuous: true` - that's a
+// browser-level cutoff, not something this app ever set a length limit for. The old code treated
+// every onend as "the user is done," so a longer dictation would just quietly stop partway
+// through with no error. Fix: only treat it as finished when the user actually clicked the mic
+// to stop (tracked via micUserStopped); any other onend auto-restarts a fresh recognition session
+// on the same utterance, so from the person's point of view it just keeps listening with no
+// practical length cap until they press stop themselves.
 function toggleMic(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { toast('Voice works in Chrome or Edge.'); return; }
-  if (listening) { rec && rec.stop(); return; }
+  if (listening) { micUserStopped = true; rec && rec.stop(); return; }
+  micUserStopped = false;
+  startMicSession();
+}
+function startMicSession(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   rec = new SR(); rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = false;
   rec.onresult = e => {
     let t = ''; for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript + ' ';
@@ -585,12 +612,17 @@ function toggleMic(){
     const ta = document.querySelector('[data-save="brief"]'); if (ta) ta.value = p.brief;
   };
   rec.onend = async () => {
+    if (!micUserStopped) { try { rec.start(); return; } catch (e) { /* fall through to finishing */ } }
     listening = false;
     const p = P();
     try { upsert(await api('PUT', `/projects/${p.id}`, {brief: p.brief})); } catch(e) { toast(e.message); }
     render();
   };
-  rec.onerror = () => { listening = false; toast('Mic stopped.'); render(); };
+  rec.onerror = e => {
+    // 'no-speech' just means a silent gap - not a real error, and not the user asking to stop.
+    if (e.error === 'no-speech' && !micUserStopped) return;
+    micUserStopped = true; listening = false; toast('Mic stopped.'); render();
+  };
   rec.start(); listening = true; render();
 }
 
@@ -747,6 +779,10 @@ async function doAct(a, t, snap){
       S.uiText = await api('PUT', '/admin/ui-text', {uiText});
       S.admin.config = await api('GET', '/admin/config'); toast('Text saved'); break;
     }
+    case 'save-founder': {
+      S.admin.config = await api('PUT', '/admin/config', {founderInfo: (snap && snap.founderInfo) || ''});
+      toast('Founder info saved'); break;
+    }
     case 'logout': await api('POST', '/logout').catch(() => {}); doLogout(); break;
   }
 }
@@ -780,6 +816,7 @@ function snapshotFor(action, t){
       const uiText = {}; document.querySelectorAll('[data-text]').forEach(i => { uiText[i.dataset.text] = i.value; });
       return { uiText };
     }
+    case 'save-founder': return { founderInfo: ($('#founderInfoTa')?.value || '') };
     default: return null;
   }
 }
@@ -799,6 +836,25 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset.founderimg !== undefined) {
+    const file = t.files && t.files[0]; if (!file) return;
+    const status = $('#founderImgStatus');
+    act(async () => {
+      if (status) status.textContent = 'Reading image…';
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result);
+          r.onerror = () => reject(new Error('Could not read file'));
+          r.readAsDataURL(file);
+        });
+        S.admin.config = await api('PUT', '/admin/founder-image', { dataUrl });
+        toast('Added description from image');
+      } catch (e) { toast(e.message); }
+      t.value = '';
+    });
+    return;
+  }
   if (t.dataset.save === undefined && t.dataset.pname === undefined && !t.dataset.uname && !t.dataset.urole && t.dataset.logsel === undefined) return;
   act(async () => {
     if (t.dataset.save) { const body = {}; body[t.dataset.save] = t.value; upsert(await api('PUT', `/projects/${P().id}`, body)); }

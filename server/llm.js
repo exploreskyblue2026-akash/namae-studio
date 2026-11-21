@@ -270,6 +270,34 @@ async function generateImage(cfg, prompt) {
   return `data:${img.inlineData.mimeType || 'image/png'};base64,${img.inlineData.data}`;
 }
 
+// Reads an uploaded image (a photo of the founder, a handwritten note, a bio page, a screenshot
+// of an article - whatever the Admin → Founder upload is) and turns it into plain text describing
+// what's relevant to naming: who the founder is, their story, personality, anything brandable.
+// Always uses the Gemini key directly via generateContent's multimodal input, same as
+// generateImage, regardless of which provider is picked for text generation - a vision-capable
+// model name isn't guaranteed to exist/behave consistently across arbitrary OpenRouter models.
+async function describeImage(cfg, dataUrl) {
+  const key = cfg.keys.gemini;
+  if (!key) throw new Error('No Gemini key saved');
+  const m = dataUrl.match(/^data:([^;]+);base64,([\s\S]+)$/);
+  if (!m) throw new Error('Invalid image data');
+  const [, mimeType, data] = m;
+  const model = 'gemini-3.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const prompt = 'This image was uploaded to help write brand names for a business, in the style of its founder. Describe, in plain prose (3-6 sentences), anything in this image relevant to that: the founder\'s name if visible or stated, their story, personality, background, or any text/branding shown. If the image has no such content, say so plainly.';
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data } }] }] }),
+    signal: AbortSignal.timeout(30000)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.message || `Image AI returned ${r.status}`);
+  const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text).filter(Boolean).join(' ').trim();
+  if (!text) throw new Error('No description returned by the model');
+  return text.slice(0, 1000);
+}
+
 // Generates name variations (spelling twists or a new word-part swapped in) via the AI, so
 // variations reflect the actual name's meaning and the brief, not just a fixed letter-swap
 // algorithm. Falls back to [] on any failure; caller uses the deterministic algorithm instead.
@@ -293,4 +321,4 @@ async function generateVariations(cfg, name, meaning, kind, context, dirLabel, c
   return [];
 }
 
-module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, checkDomainAI, checkTrademarkAI, checkSocialAI, extractBrandMatches, suggestDirections, generateNames, generateImage, generateVariations, TECHNIQUE_KEYS: Object.keys(TECHNIQUES) };
+module.exports = { restate, suggest, ping, checkSound, checkOrigin, checkSimilar, checkDomainAI, checkTrademarkAI, checkSocialAI, extractBrandMatches, suggestDirections, generateNames, generateImage, describeImage, generateVariations, TECHNIQUE_KEYS: Object.keys(TECHNIQUES) };

@@ -52,7 +52,8 @@ function seed() {
       // provider picks which text-generation API is used (image generation always uses the
       // Gemini key directly, regardless of this). Switching provider/model needs no code change.
       llm: { provider: 'gemini', model: 'gemini-3.5-flash-lite', openrouterModel: 'openai/gpt-4o-mini' },
-      uiText: {}
+      uiText: {},
+      founderInfo: ''
     }
   };
 }
@@ -82,6 +83,7 @@ const KEY_DEFAULTS = { gemini: '', openrouter: '', euipo_client_id: '', euipo_cl
 function ensureKeyShape() {
   let changed = false;
   for (const k of Object.keys(KEY_DEFAULTS)) if (!(k in db.config.keys)) { db.config.keys[k] = KEY_DEFAULTS[k]; changed = true; }
+  if (typeof db.config.founderInfo !== 'string') { db.config.founderInfo = ''; changed = true; } // predates this field
   if (changed) save();
 }
 function cfg() {
@@ -191,7 +193,7 @@ function dirInfo(p, dir) {
 // Market and target-segment info the user fills in elsewhere in the project (p.market,
 // p.segments) never reached the naming prompt at all, even though it's exactly the kind of
 // specific detail that pushes a model away from generic names. This folds that in.
-function buildContext(p) {
+function buildContext(p, dir) {
   const parts = [];
   // The raw brief is the richest source (the user's own words, full detail); the restatement is
   // an AI-compressed 2-sentence paraphrase of it, generated only to show the user "here's what I
@@ -202,6 +204,13 @@ function buildContext(p) {
   else if (p.restatement) parts.push(p.restatement);
   if (p.market) parts.push(`Target market: ${p.market}`);
   if (Array.isArray(p.segments) && p.segments.length) parts.push(`Target customer segments: ${p.segments.join(', ')}`);
+  // The Founder-style direction is only meaningful if it's actually about THIS founder - a
+  // generic business brief alone gives the AI nothing to personalize, which is exactly why it
+  // used to fall back to canned pool examples (Mira & Co., Nora Lane) with no connection to the
+  // real person. Admin → Founder lets the user paste in (or upload a photo/text of) the actual
+  // founder's name, story or personality once; fold it in only for this direction so it doesn't
+  // leak into unrelated directions.
+  if (dir === 'founder' && cfg().founderInfo) parts.push(`Founder background (use this, do not invent a generic founder persona): ${cfg().founderInfo}`);
   return parts.join('\n');
 }
 function addName(p, dir, n, m, extra = {}) {
@@ -249,7 +258,7 @@ async function mapLimit(items, limit, fn) {
 }
 async function generateMoreFor(p, dir, count) {
   const d = dirInfo(p, dir); if (!d) return { added: 0, lastError: null };
-  const context = buildContext(p);
+  const context = buildContext(p, dir);
   let got = 0;
   let lastError = null;
   if (llmReady()) {
@@ -453,7 +462,7 @@ app.post('/api/projects/:id/names/:nid/variations', auth, async (req, res) => {
     // One small call PER variation, run in parallel, instead of one call asking for all of
     // them at once - a single batch call tends to produce the same root word with different
     // suffixes (Joinjoi/Jointot/Jointmoi); independent calls give each variation its own idea.
-    const context = buildContext(p);
+    const context = buildContext(p, n.dir);
     const results = await Promise.all(Array.from({ length: wantCount }, () =>
       llm.generateVariations(cfg(), n.n, n.m, kind, context, n.dirLabel, 1)));
     const seen = new Set();
@@ -477,7 +486,7 @@ app.post('/api/projects/:id/names/:nid/variations', auth, async (req, res) => {
 app.post('/api/projects/:id/names/:nid/research', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const n = nameOf(p, req.params.nid); if (!n) return res.status(404).json({ error: 'Name not found' });
-  const context = buildContext(p);
+  const context = buildContext(p, n.dir);
   try { n.research = await research.run(n.n, cfg(), llm, context); }
   catch (e) { return res.status(502).json({ error: 'Research failed: ' + e.message }); }
   save(); res.json(p);
@@ -491,7 +500,7 @@ app.post('/api/projects/:id/names/:nid/visualise', auth, async (req, res) => {
   n.visualError = '';
   n.visualImages = [];
   if (!llmReady()) { n.visualError = 'AI is not connected. Add a Gemini key in Admin.'; save(); return res.json(p); }
-  const context = buildContext(p);
+  const context = buildContext(p, n.dir);
   // A strong, consistent base prompt is always built from the actual brand data (name, meaning,
   // direction, business) regardless of what the user types in the style box - that field only
   // adds an optional extra direction on top, so quality never depends on the user happening to
@@ -564,7 +573,7 @@ app.get('/api/admin/logs', auth, adminOnly, (req, res) => {
 function configView() {
   const keys = {};
   Object.entries(cfg().keys).forEach(([k, v]) => { keys[k] = { set: !!v, hint: mask(v), fromEnv: !!process.env[ENV_KEYS[k]] }; });
-  return { keys, sources: cfg().sources, llm: cfg().llm, uiText: uiText(), llmReady: llmReady() };
+  return { keys, sources: cfg().sources, llm: cfg().llm, uiText: uiText(), llmReady: llmReady(), founderInfo: cfg().founderInfo || '' };
 }
 app.get('/api/admin/config', auth, adminOnly, (req, res) => res.json(configView()));
 
@@ -583,8 +592,26 @@ app.put('/api/admin/config', auth, adminOnly, (req, res) => {
   if (b.llm && typeof b.llm.model === 'string' && b.llm.model.trim()) db.config.llm.model = b.llm.model.trim().slice(0, 80);
   if (b.llm && typeof b.llm.openrouterModel === 'string' && b.llm.openrouterModel.trim()) db.config.llm.openrouterModel = b.llm.openrouterModel.trim().slice(0, 80);
   if (b.llm && ['gemini', 'openrouter'].includes(b.llm.provider)) db.config.llm.provider = b.llm.provider;
+  if (typeof b.founderInfo === 'string') db.config.founderInfo = b.founderInfo.slice(0, 4000);
   console.log('[admin/config PUT] after save, openrouter key set:', !!db.config.keys.openrouter, 'provider:', db.config.llm.provider);
   save(); res.json(configView());
+});
+
+// Accepts an uploaded photo/screenshot (as a data: URL) for Admin -> Founder, reads it via Gemini
+// vision, and appends the extracted description to the saved founder text - the same pattern as
+// typing it directly, just sourced from an image instead. Uses its own larger body-size limit
+// (the app's global express.json limit is 1mb, far too small for a photo) scoped to just this
+// route, rather than widening the limit everywhere.
+app.put('/api/admin/founder-image', auth, adminOnly, express.json({ limit: '12mb' }), async (req, res) => {
+  const dataUrl = String((req.body || {}).dataUrl || '');
+  if (!dataUrl.startsWith('data:image/')) return res.status(400).json({ error: 'Not an image' });
+  if (!cfg().keys.gemini) return res.status(400).json({ error: 'Add a Gemini key in Admin first (image reading always uses the Gemini key, regardless of text provider)' });
+  try {
+    const desc = await llm.describeImage(cfg(), dataUrl);
+    db.config.founderInfo = `${db.config.founderInfo || ''}${db.config.founderInfo ? '\n' : ''}[From uploaded image] ${desc}`.slice(0, 4000);
+    save();
+    res.json(configView());
+  } catch (e) { res.status(502).json({ error: 'Could not read image: ' + e.message }); }
 });
 
 app.put('/api/admin/ui-text', auth, adminOnly, (req, res) => {

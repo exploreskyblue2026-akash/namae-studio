@@ -56,12 +56,12 @@ const dirs = [
     ['EasyShelf', 'Says plainly what it is: simple to store and use.'],
     ['FreshStudio', 'Says plainly what it is: a new, lively workspace.']
   ]},
-  { id: 'founder', label: 'Founder-style', hint: "Reads like a person's name, or a name plus \"& Co.\"/\"House of\"/a possessive - warm, personal and classic, like a design studio or atelier.", color: '#FF6B6B', pool: [
-    ["Mira & Co.", 'A personal name paired with "& Co." for a classic, trusted feel.'],
-    ['House of Aro', 'A personal or invented name framed as a "house," like a design studio.'],
-    ["Theo's Workshop", "A first name plus what it does, warm and personal."],
-    ['Nora Lane', 'A name that reads like a person, grounded and approachable.']
-  ]},
+  // No pool: a canned "Mira & Co." / "Nora Lane" example has zero connection to the actual
+  // founder, so falling back to it (the old behavior whenever generation came up short) was
+  // worse than admitting the AI didn't run. This direction is only genuinely useful once Admin
+  // -> Founder has real info to personalize with (see buildContext in server.js); an empty pool
+  // forces every batch to call the AI fresh instead of masking a failure with a fake persona.
+  { id: 'founder', label: 'Founder-style', hint: "Reads like the ACTUAL founder's real name (from the founder background info, if provided), or that name plus \"& Co.\"/\"House of\"/a possessive - warm, personal and classic, like a design studio or atelier. Do not invent a generic placeholder founder name - use the real one.", color: '#FF6B6B', pool: [] },
   { id: 'playful', label: 'Playful', hint: "Light, fun, a little silly or whimsical - memorable through personality and charm rather than polish, but still relevant to this specific business.", color: '#FFB23E', pool: [
     ['Wobblebee', 'A silly, bouncy sound that is hard not to smile at.'],
     ['Snugmuffin', 'Cozy and a little absurd, built to be memorable.'],
