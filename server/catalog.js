@@ -73,7 +73,16 @@ const dirs = [
     ['Vael', 'A short, calm-sounding word that stays out of its own way.'],
     ['Juno', 'Short, familiar-sounding, easy to say in any language.'],
     ['Riso', 'A crisp two-syllable word with a clean, modern edge.']
-  ]}
+  ]},
+  // Diagnostic direction: deliberately carries NO style hint (intentionally omitted, not just
+  // blank) and an empty pool, so generateMoreFor's styleDesc falls back to just the bare label
+  // and the AI always runs fresh (never the hardcoded pool). Picking this isolates exactly one
+  // variable: is the business CONTEXT alone enough to produce good names, with zero style
+  // constraint layered on top? If names generated here are still generic, the issue is upstream
+  // (the business context/brief itself, or the model). If these are good but a named style
+  // (Playful, Phonetic fusion, etc.) isn't, the issue is that style's hint being too narrow/odd
+  // for this particular business - worth knowing before chasing the wrong fix.
+  { id: 'open', label: 'Open — no style constraint (just the business)', color: '#8A8A8A', pool: [] }
 ];
 
 const markets = [
