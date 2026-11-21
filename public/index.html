@@ -173,6 +173,30 @@ td{padding:10px;border-bottom:1px solid #E3ECFA}
 .login{max-width:380px;margin:12vh auto 0;padding:30px;display:flex;flex-direction:column;gap:12px}
 .login input{padding:12px 14px}
 @media (max-width:860px){.opts,.dgrid,.ptiles,.split2{grid-template-columns:1fr}.title,.projname{display:none}.main{padding:20px}}
+@media (max-width:520px){
+  /* Admin "krow" rows (Connections/Users/Text) pack a label + pill + input + button inline,
+     which is the exact combination that overflows or squashes the capsule buttons on a phone
+     width. Stacking label above controls, and letting the input/button grow to fill the row,
+     keeps every control fully tappable instead of clipped or shrunk. */
+  .krow{flex-direction:column;align-items:stretch;gap:8px}
+  .krow .lbl{min-width:0}
+  .krow input,.krow select{max-width:none!important;width:100%}
+  .krow>button,.krow .inline button{flex:0 0 auto}
+  /* The admin sub-tab bar (Users/Activity/Connections/Text) and the Market/segment capsule
+     pickers can overflow a narrow screen in one unbroken row - let them wrap and let each
+     button shrink its own padding instead of overflowing. */
+  .seg{flex-wrap:wrap;width:100%}
+  .seg button{flex:1 1 auto;text-align:center;padding:7px 8px;font-size:10.5px}
+  .chip,.opt{padding:7px 10px;font-size:12px}
+  .tab{padding:5px 12px 5px 5px;font-size:11px}
+  .main{padding:14px}
+  /* The Users/Activity tables pack several inputs+buttons per row (name, role select, status
+     toggle, password field+button) that genuinely need their own width - reflowing them would
+     make each control too cramped to use, so they scroll horizontally instead, which is the
+     standard mobile pattern for a wide data table. */
+  table{display:block;overflow-x:auto;white-space:nowrap;font-size:12px}
+  th,td{padding:7px 6px}
+}
 </style>
 </head>
 <body>
@@ -529,7 +553,7 @@ function adminHTML(){
           <option value="openrouter" ${c.llm.provider==='openrouter'?'selected':''}>OpenRouter</option>
         </select></div>
       <div style="font-size:12px;color:#777;margin:-6px 0 4px">Switch provider any time to compare output quality or try a different model - image generation (logos) always uses the Gemini key above regardless of this.</div>
-      <div class="krow"><span class="lbl">Gemini model</span><input id="llmModel" value="${esc(c.llm.model)}" style="max-width:240px" ${c.llmModelFromEnv ? 'disabled title="Set by GEMINI_MODEL in Render"' : ''}></div>${c.llmModelFromEnv ? '<div style="font-size:12px;color:#777;margin-top:-6px">Set by GEMINI_MODEL env var. Change it in Render, not here.</div>' : ''}
+      <div class="krow"><span class="lbl">Gemini model</span><input id="llmModel" value="${esc(c.llm.model)}" style="max-width:240px"></div>
       <div class="krow"><span class="lbl">OpenRouter model</span><input id="llmOpenrouterModel" value="${esc(c.llm.openrouterModel||'openai/gpt-4o-mini')}" placeholder="e.g. openai/gpt-4o-mini, anthropic/claude-3.5-sonnet" style="max-width:320px"></div>
       ${Object.keys(c.sources).map(s => `<div class="krow"><label style="min-width:170px;font-weight:800"><input type="checkbox" data-src="${s}" ${c.sources[s]?'checked':''}> ${SOURCE_LABEL[s]||s}</label>
         <button class="ghost sm" data-act="test" data-val="${s}">Test</button><span class="count" id="test-${s}"></span></div>`).join('')}

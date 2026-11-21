@@ -93,10 +93,11 @@ function cfg() {
   // Either provider's key is enough to flip text-generation on - SOURCE_KEYS above only checks
   // the Gemini key since it predates OpenRouter support.
   if (keys.openrouter) sources.llm = true;
+  // Model/provider choice is a preference, not a secret, and Postgres now persists Admin's saved
+  // config reliably across restarts - so unlike API keys (still env-overridable below, since
+  // those are legitimately meant to be locked server-side), the model/provider fields are always
+  // whatever was last saved in Admin. Env vars no longer silently pin or disable them.
   const llm = { ...db.config.llm };
-  if (process.env.LLM_PROVIDER) llm.provider = process.env.LLM_PROVIDER.trim();
-  if (process.env.GEMINI_MODEL) llm.model = process.env.GEMINI_MODEL.trim();
-  if (process.env.OPENROUTER_MODEL) llm.openrouterModel = process.env.OPENROUTER_MODEL.trim();
   if (process.env.GEMINI_IMAGE_MODEL) llm.imageModel = process.env.GEMINI_IMAGE_MODEL.trim();
   else if (!llm.imageModel) llm.imageModel = 'gemini-2.5-flash-image';
   return { ...db.config, keys, sources, llm };
@@ -532,13 +533,17 @@ app.get('/api/admin/logs', auth, adminOnly, (req, res) => {
 function configView() {
   const keys = {};
   Object.entries(cfg().keys).forEach(([k, v]) => { keys[k] = { set: !!v, hint: mask(v), fromEnv: !!process.env[ENV_KEYS[k]] }; });
-  return { keys, sources: cfg().sources, llm: cfg().llm, llmModelFromEnv: !!process.env.GEMINI_MODEL, uiText: uiText(), llmReady: llmReady() };
+  return { keys, sources: cfg().sources, llm: cfg().llm, uiText: uiText(), llmReady: llmReady() };
 }
 app.get('/api/admin/config', auth, adminOnly, (req, res) => res.json(configView()));
 
 app.put('/api/admin/config', auth, adminOnly, (req, res) => {
   ensureKeyShape(); // legacy configs may predate newer key names (e.g. 'openrouter')
   const b = req.body || {};
+  // Temporary diagnostic: logs which key *names* (never the values) actually arrived in this
+  // request and what the saved shape looks like right after, to track down a report of a saved
+  // key not sticking without needing direct DB access.
+  console.log('[admin/config PUT] received key names:', Object.keys(b.keys || {}), 'llm:', b.llm);
   Object.entries(b.keys || {}).forEach(([k, v]) => {
     if (k in db.config.keys && typeof v === 'string' && v.trim()) db.config.keys[k] = v.trim();
   });
@@ -547,6 +552,7 @@ app.put('/api/admin/config', auth, adminOnly, (req, res) => {
   if (b.llm && typeof b.llm.model === 'string' && b.llm.model.trim()) db.config.llm.model = b.llm.model.trim().slice(0, 80);
   if (b.llm && typeof b.llm.openrouterModel === 'string' && b.llm.openrouterModel.trim()) db.config.llm.openrouterModel = b.llm.openrouterModel.trim().slice(0, 80);
   if (b.llm && ['gemini', 'openrouter'].includes(b.llm.provider)) db.config.llm.provider = b.llm.provider;
+  console.log('[admin/config PUT] after save, openrouter key set:', !!db.config.keys.openrouter, 'provider:', db.config.llm.provider);
   save(); res.json(configView());
 });
 
