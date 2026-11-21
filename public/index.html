@@ -206,7 +206,10 @@ const T = k => S.uiText[k] || k;
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),2600); }
 function P(){ return S.projects.find(p => p.id === S.currentId) || S.projects[0]; }
 function N(id, p = P()){ return p && p.names.find(n => n.id === id); }
-function upsert(p){ const i = S.projects.findIndex(x => x.id === p.id); if (i > -1) S.projects[i] = p; else S.projects.unshift(p); }
+function upsert(p){
+  if (p && p._genShortfall) { const g = p._genShortfall; toast(`Only got ${g.added} of ${g.requested} names this time - the AI was rate-limited partway through. Try "Generate more" again.`); delete p._genShortfall; }
+  const i = S.projects.findIndex(x => x.id === p.id); if (i > -1) S.projects[i] = p; else S.projects.unshift(p);
+}
 function visibleNames(p = P()){ return p.names.filter(n => n.status !== 'rejected' && (n.dir === 'custom' || p.dirs.includes(n.dir))); }
 function suggestions(p = P()){ return visibleNames(p).filter(n => n.status === 'suggested' || n.status === 'kept'); }
 function shortlisted(p = P()){ return p.names.filter(n => n.status === 'shortlisted' || n.status === 'locked'); }

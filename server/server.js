@@ -209,6 +209,23 @@ function generateFor(p, dir, count) {
 // instead of genuinely distinct ideas - several smaller independent calls, each with its own
 // random seed, give far more real variety for the same total count.
 const NAME_CHUNK = 4;
+// Runs `fn` over `items` with at most `limit` in flight at once. Firing every chunk of a big
+// name batch at the provider simultaneously (e.g. 6 calls for a 24-name request) can trip a
+// provider's per-second rate limit, especially on a free/trial key - capping concurrency keeps
+// the diversity benefit of several small calls without bursting past that limit.
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      try { results[idx] = await fn(items[idx], idx); }
+      catch (e) { results[idx] = []; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 async function generateMoreFor(p, dir, count) {
   const d = dirInfo(p, dir); if (!d) return 0;
   const context = p.restatement || p.brief || '';
@@ -218,7 +235,7 @@ async function generateMoreFor(p, dir, count) {
     const chunks = [];
     let remaining = count;
     while (remaining > 0) { chunks.push(Math.min(NAME_CHUNK, remaining)); remaining -= NAME_CHUNK; }
-    const results = await Promise.all(chunks.map(c => llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), c)));
+    const results = await mapLimit(chunks, 3, c => llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), c));
     const seen = new Set(p.names.map(x => x.n.toLowerCase()));
     for (const pairs of results) {
       for (const [n, m] of pairs) {
@@ -228,6 +245,24 @@ async function generateMoreFor(p, dir, count) {
         addName(p, dir, n, m);
         got++;
       }
+    }
+    // The parallel fan-out can still come up short (a transient rate limit, a timeout on one
+    // chunk) - one more sequential, single call for exactly the shortfall is far less likely to
+    // hit the same limit than the batch that just did, so try that before giving up to the
+    // catalog pool. This matters most for AI-suggested custom directions, which have an
+    // intentionally empty pool (no fallback at all) - without this, a single failed chunk could
+    // silently cap the whole batch at whatever the other chunks happened to return.
+    if (got < count) {
+      try {
+        const pairs = await llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), count - got);
+        for (const [n, m] of pairs) {
+          const key = n.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          addName(p, dir, n, m);
+          got++;
+        }
+      } catch (e) { /* fall through to the pool fallback below */ }
     }
   }
   const need = count - got;
@@ -324,13 +359,15 @@ app.post('/api/projects/:id/directions/suggest', auth, async (req, res) => {
 app.post('/api/projects/:id/names', auth, async (req, res) => {
   const p = ownProject(req, res); if (!p) return;
   const b = req.body || {};
-  if (b.action === 'generate') await generateMoreFor(p, b.dir, 4);
+  let requested = 0, added = 0; // surfaced to the client so it can warn on a shortfall instead of silently showing fewer names than asked for
+  if (b.action === 'generate') { requested = 4; added = await generateMoreFor(p, b.dir, 4); }
   else if (b.action === 'more') {
     // Fixed total of 8 new names per click (a clean multiple of 4, matching the names grid's
     // 4-per-row layout), split evenly across whichever directions are selected - not "N per
     // direction", so the total added stays predictable how ever many directions are picked.
+    requested = 8;
     const counts = splitCount(8, p.dirs.length);
-    await Promise.all(p.dirs.map((d, i) => generateMoreFor(p, d, counts[i])));
+    added = (await Promise.all(p.dirs.map((d, i) => generateMoreFor(p, d, counts[i])))).reduce((a, b) => a + b, 0);
   }
   else if (b.action === 'regenerate') {
     // Always ask the AI fresh for the currently selected directions. Drops previously
@@ -340,9 +377,9 @@ app.post('/api/projects/:id/names', auth, async (req, res) => {
     p.names = p.names.filter(x => !(x.status === 'suggested' && p.dirs.includes(x.dir)));
     // First run targets 24 names total (a clean multiple of 4), or more if many directions are
     // selected (at least 2 per direction), split evenly so the total is always predictable.
-    const total = Math.max(24, p.dirs.length * 2);
-    const counts = splitCount(total, p.dirs.length);
-    await Promise.all(p.dirs.map((d, i) => generateMoreFor(p, d, counts[i])));
+    requested = Math.max(24, p.dirs.length * 2);
+    const counts = splitCount(requested, p.dirs.length);
+    added = (await Promise.all(p.dirs.map((d, i) => generateMoreFor(p, d, counts[i])))).reduce((a, b) => a + b, 0);
   }
   else if (b.action === 'reshuffle') p.names.sort(() => Math.random() - 0.5);
   else if (b.action === 'own') {
@@ -351,7 +388,8 @@ app.post('/api/projects/:id/names', auth, async (req, res) => {
     if (p.names.some(x => x.n.toLowerCase() === n.toLowerCase())) return res.status(400).json({ error: 'Already in the list' });
     addName(p, b.dir || 'custom', n, String(b.m || 'Your own name.').slice(0, 200), b.parent ? { parent: b.parent } : {});
   } else return res.status(400).json({ error: 'Unknown action' });
-  save(); res.json(p);
+  save();
+  res.json(requested > added ? { ...p, _genShortfall: { requested, added } } : p);
 });
 
 app.patch('/api/projects/:id/names/:nid', auth, (req, res) => {
