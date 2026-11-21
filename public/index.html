@@ -148,7 +148,8 @@ textarea{width:100%;min-height:130px;resize:vertical;font-size:16px;line-height:
 button.suggested{box-shadow:0 0 0 3px rgba(0,110,255,.35),0 0 14px rgba(0,110,255,.5);animation:sugglow 1.6s ease-in-out infinite}
 @keyframes sugglow{0%,100%{box-shadow:0 0 0 3px rgba(0,110,255,.3),0 0 10px rgba(0,110,255,.4)}50%{box-shadow:0 0 0 5px rgba(0,110,255,.45),0 0 20px rgba(0,110,255,.65)}}
 .visrow{display:flex;gap:10px;flex-wrap:wrap}
-.visrow .preview{flex:1 1 30%;height:140px;min-height:0}
+.visrow .preview{flex:1 1 30%;height:150px;min-height:0;display:flex;align-items:center;justify-content:center}
+.visrow .preview.img img{width:100%;height:100%;object-fit:contain;border-radius:10px;background:#fff}
 .bottombar{position:sticky;bottom:10px;margin-top:8px;background:rgba(255,255,255,.95);border:1px solid var(--edge);border-radius:999px;padding:8px 10px;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;box-shadow:0 12px 26px rgba(0,60,160,.16)}
 
 /* shortlist, library */
@@ -185,7 +186,7 @@ const ICON = {
   lib: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="16" rx="1"/><path d="M17 5l3 1-3 14-3-1z"/></svg>',
   mic: '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>'
 };
-const KEY_LABEL = {gemini:'AI (Gemini)', euipo_client_id:'EUIPO client ID', euipo_client_secret:'EUIPO client secret', uspto:'USPTO key', whoisxml:'WhoisXML key'};
+const KEY_LABEL = {gemini:'AI key (Gemini)', openrouter:'AI key (OpenRouter)', euipo_client_id:'EUIPO client ID', euipo_client_secret:'EUIPO client secret', uspto:'USPTO key', whoisxml:'WhoisXML key'};
 const SOURCE_LABEL = {rdap:'Domain (RDAP)', llm:'AI checks', euipo:'EUIPO trademark', uspto:'USPTO trademark', whoisxml:'WhoisXML domains'};
 const TABS = [['brief','Brief'],['directions','Directions'],['names','Names'],['shortlist','Shortlist']];
 
@@ -303,10 +304,12 @@ views.brief = () => {
   const sections = p.confirmed ? `
     <div class="block"><span class="lbl">Market</span>
       <div class="opts">${S.catalog.markets.map(m => `<button class="opt ${p.market===m.id?'on':''}" data-act="set-market" data-val="${m.id}" aria-pressed="${p.market===m.id}">${m.label}</button>`).join('')}</div></div>
-    <div class="block"><span class="lbl">Classes</span>
+    <div class="block"><div class="row"><span class="lbl">Classes</span><span class="grow"></span>
+      <button class="ghost sm" data-act="ai-suggest" data-field="classes">✨ Suggest for this business</button></div>
       <div class="chips">${optionList(p, 'classes')}</div>
       <div class="inline"><input id="clsin" placeholder="+"><button class="ghost sm" data-act="add-class">Add</button></div></div>
-    <div class="block"><span class="lbl">Target segment</span>
+    <div class="block"><div class="row"><span class="lbl">Target segment</span><span class="grow"></span>
+      <button class="ghost sm" data-act="ai-suggest" data-field="segments">✨ Suggest for this business</button></div>
       <div class="chips">${optionList(p, 'segments')}</div>
       <div class="inline"><input id="segin" placeholder="+"><button class="ghost sm" data-act="add-seg">Add</button></div></div>
     <div class="block"><span class="lbl">References</span>
@@ -339,7 +342,8 @@ views.directions = () => {
   const custom = p.customDirs || [];
   const allDirs = [...custom, ...S.catalog.dirs];
   return `
-    <h1 class="display">${T('directions_title')}</h1>
+    <div class="row"><h1 class="display">${T('directions_title')}</h1><span class="grow"></span>
+      <button class="ghost sm" data-act="ai-suggest-dirs">✨ Suggest for this business</button></div>
     <div class="dgrid">${allDirs.map(d => { const on = p.dirs.includes(d.id); const isCustom = custom.some(c => c.id === d.id); return `
       <button class="dtile ${on?'on':''}" style="--c:${d.color}" data-act="dir" data-id="${d.id}" aria-pressed="${on}" title="${esc(d.hint||'')}">${isCustom?'<span class="td" style="display:block;font-size:9px;opacity:.65;margin-bottom:4px">FOR THIS BUSINESS</span>':''}${esc(d.label)}</button>`; }).join('')}</div>
     <div class="bar">
@@ -384,7 +388,7 @@ views.detail = () => {
       <div class="chips">${(n.variants||[]).map(v => `<button class="var" data-act="open-variant" data-val="${esc(v)}">${esc(v)}</button>`).join('')}</div></div>
     <div class="block"><div class="row"><span class="lbl">Visual</span><span class="grow"></span>
       <input id="visdir" value="${esc(n.visual)}" placeholder="Style (optional)" style="flex:1;max-width:320px"><button class="ghost sm" data-act="visualise">Go</button></div>
-      ${images.length ? `<div class="visrow">${images.map(img => `<div class="preview img"><img src="${esc(img)}" alt="${esc(n.n)} visual"></div>`).join('')}</div>`
+      ${images.length ? `<div class="visrow">${images.map(img => `<div class="preview img"><img src="${esc(img)}" alt="${esc(n.n)} visual" loading="lazy"></div>`).join('')}</div>`
         : n.visualError ? `<div class="preview err">${esc(n.visualError)}</div>`
         : ''}</div>
     <div class="block"><div class="row"><span class="lbl">${T('research_title')}</span><span class="grow"></span>
@@ -516,7 +520,14 @@ function adminHTML(){
         <span class="pill ${c.keys[k].set?'Clear':'Pending'}">${c.keys[k].set?esc(c.keys[k].hint):'—'}</span>
         <input type="password" data-key="${k}" placeholder="Key" style="max-width:240px">
         ${c.keys[k].set ? `<button class="ghost sm" data-act="clear-key" data-val="${k}">Clear</button>` : ''}</div>`).join('')}
-      <div class="krow"><span class="lbl">AI model</span><input id="llmModel" value="${esc(c.llm.model)}" style="max-width:240px" ${c.llmModelFromEnv ? 'disabled title="Set by GEMINI_MODEL in Render"' : ''}></div>${c.llmModelFromEnv ? '<div style="font-size:12px;color:#777;margin-top:-6px">Set by GEMINI_MODEL env var. Change it in Render, not here.</div>' : ''}
+      <div class="krow"><span class="lbl">AI provider</span>
+        <select id="llmProvider" style="max-width:240px">
+          <option value="gemini" ${c.llm.provider!=='openrouter'?'selected':''}>Gemini</option>
+          <option value="openrouter" ${c.llm.provider==='openrouter'?'selected':''}>OpenRouter</option>
+        </select></div>
+      <div style="font-size:12px;color:#777;margin:-6px 0 4px">Switch provider any time to compare output quality or try a different model - image generation (logos) always uses the Gemini key above regardless of this.</div>
+      <div class="krow"><span class="lbl">Gemini model</span><input id="llmModel" value="${esc(c.llm.model)}" style="max-width:240px" ${c.llmModelFromEnv ? 'disabled title="Set by GEMINI_MODEL in Render"' : ''}></div>${c.llmModelFromEnv ? '<div style="font-size:12px;color:#777;margin-top:-6px">Set by GEMINI_MODEL env var. Change it in Render, not here.</div>' : ''}
+      <div class="krow"><span class="lbl">OpenRouter model</span><input id="llmOpenrouterModel" value="${esc(c.llm.openrouterModel||'openai/gpt-4o-mini')}" placeholder="e.g. openai/gpt-4o-mini, anthropic/claude-3.5-sonnet" style="max-width:320px"></div>
       ${Object.keys(c.sources).map(s => `<div class="krow"><label style="min-width:170px;font-weight:800"><input type="checkbox" data-src="${s}" ${c.sources[s]?'checked':''}> ${SOURCE_LABEL[s]||s}</label>
         <button class="ghost sm" data-act="test" data-val="${s}">Test</button><span class="count" id="test-${s}"></span></div>`).join('')}
       <div class="row end"><button class="black sm" data-act="save-config">Save</button></div>`;
@@ -597,6 +608,18 @@ async function doAct(a, t){
       break;
     }
     case 'edit-brief': upsert(await save({confirmed:false, restating:true})); break;
+    case 'ai-suggest': {
+      if (!S.llmReady) { toast('AI is not connected. Add a key in Admin.'); break; }
+      try { upsert(await api('POST', `/projects/${p.id}/suggest`, {field: t.dataset.field})); }
+      catch(e) { toast(e.message); }
+      break;
+    }
+    case 'ai-suggest-dirs': {
+      if (!S.llmReady) { toast('AI is not connected. Add a key in Admin.'); break; }
+      try { upsert(await api('POST', `/projects/${p.id}/directions/suggest`)); }
+      catch(e) { toast(e.message); }
+      break;
+    }
     case 'set-market': upsert(await save({market:t.dataset.val})); break;
     case 'toggle-class': {
       const v=t.dataset.val; upsert(await save({classes: p.classes.includes(v) ? p.classes.filter(x=>x!==v) : [...p.classes, v]})); break;
@@ -679,7 +702,8 @@ async function doAct(a, t){
     case 'save-config': {
       const keys = {}; document.querySelectorAll('[data-key]').forEach(i => { if (i.value.trim()) keys[i.dataset.key] = i.value.trim(); });
       const sources = {}; document.querySelectorAll('[data-src]').forEach(i => { sources[i.dataset.src] = i.checked; });
-      S.admin.config = await api('PUT', '/admin/config', {keys, sources, llm:{model: $('#llmModel').value}});
+      const provEl = $('#llmProvider'), orEl = $('#llmOpenrouterModel');
+      S.admin.config = await api('PUT', '/admin/config', {keys, sources, llm:{model: $('#llmModel').value, provider: provEl ? provEl.value : undefined, openrouterModel: orEl ? orEl.value : undefined}});
       S.llmReady = S.admin.config.llmReady; toast('Saved'); break;
     }
     case 'save-text': {
@@ -695,7 +719,8 @@ async function doAct(a, t){
 const BUSY_MSG = {
   dir: 'Saving…', reshuffle: 'Shuffling…', more: 'Generating more names…',
   research: 'Running research…', visualise: 'Generating image…',
-  understand: 'Thinking…', confirm: 'Getting suggestions…', 'goto-names': 'Generating names…'
+  understand: 'Thinking…', confirm: 'Getting suggestions…', 'goto-names': 'Generating names…',
+  'ai-suggest': 'Getting suggestions…', 'ai-suggest-dirs': 'Getting suggestions…', similar: 'Generating…', newel: 'Generating…'
 };
 document.addEventListener('click', e => {
   if (S.busy) return;

@@ -2,9 +2,20 @@
 // AI adapter (Google Gemini REST). Model names change over time: set the model in Admin → Connections,
 // or GEMINI_MODEL / GEMINI_IMAGE_MODEL env vars (env vars survive free-tier restarts; Admin settings don't).
 
+// Text generation is provider-pluggable (Gemini or OpenRouter, picked in Admin) so the person can
+// switch models/providers to compare output quality or work around one provider having an off
+// day, without any code change. Image generation always uses the Gemini key directly (see
+// generateImage below) since consistent image output across arbitrary OpenRouter models isn't
+// something that can be relied on the same way.
 async function call(cfg, prompt, opts = {}) {
+  const provider = (cfg.llm && cfg.llm.provider) || 'gemini';
+  if (provider === 'openrouter') return callOpenRouter(cfg, prompt, opts);
+  return callGemini(cfg, prompt, opts);
+}
+
+async function callGemini(cfg, prompt, opts) {
   const key = cfg.keys.gemini;
-  if (!key) throw new Error('No AI key saved');
+  if (!key) throw new Error('No Gemini key saved');
   const model = (cfg.llm && cfg.llm.model) || 'gemini-3.5-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
   const generationConfig = { temperature: opts.temperature ?? 1.0 };
@@ -23,6 +34,35 @@ async function call(cfg, prompt, opts = {}) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message || `AI returned ${r.status}`);
   return (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
+}
+
+async function callOpenRouter(cfg, prompt, opts) {
+  const key = cfg.keys.openrouter;
+  if (!key) throw new Error('No OpenRouter key saved');
+  const model = (cfg.llm && cfg.llm.openrouterModel) || 'openai/gpt-4o-mini';
+  const body = {
+    model,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: opts.temperature ?? 1.0
+  };
+  // OpenRouter proxies many different underlying models; not all of them honor
+  // response_format, so JSON mode is a best-effort request, not a guarantee the way it is on
+  // Gemini - callers' own [...]/{...} extraction regex is still the real safety net either way.
+  if (opts.json) body.response_format = { type: 'json_object' };
+  const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${key}`,
+      'HTTP-Referer': 'https://namae-studio.onrender.com',
+      'X-Title': 'Namae Studio'
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 25000)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.message || `AI (OpenRouter) returned ${r.status}`);
+  return (j.choices?.[0]?.message?.content || '').trim();
 }
 
 async function restate(cfg, text) {
@@ -185,10 +225,11 @@ async function generateImage(cfg, prompt) {
 // Generates name variations (spelling twists or a new word-part swapped in) via the AI, so
 // variations reflect the actual name's meaning and the brief, not just a fixed letter-swap
 // algorithm. Falls back to [] on any failure; caller uses the deterministic algorithm instead.
-async function generateVariations(cfg, name, meaning, kind, context, dirLabel) {
+async function generateVariations(cfg, name, meaning, kind, context, dirLabel, count) {
+  const n = count || (kind === 'new' ? 3 : 4);
   const ask = kind === 'new'
-    ? `Invent 3 variations of the brand name "${name}" (meaning: ${meaning}) by swapping in a different word-part while keeping the start of the name recognizable.`
-    : `Invent 4 variations of the brand name "${name}" (meaning: ${meaning}) by tweaking its spelling or sound — similar enough to still feel like the same name.`;
+    ? `Invent ${n} variation${n > 1 ? 's' : ''} of the brand name "${name}" (meaning: ${meaning}) by swapping in a different word-part while keeping the start of the name recognizable. Each one should feel like its own distinct idea, not a minor spelling tweak of another.`
+    : `Invent ${n} variation${n > 1 ? 's' : ''} of the brand name "${name}" (meaning: ${meaning}) by tweaking its spelling or sound — similar enough to still feel like the same name, but each one meaningfully different from the others, not just different suffixes on the same root.`;
   const seed = Math.random().toString(36).slice(2, 8);
   const styleLine = dirLabel ? `\nStay aligned with this name's own style/direction: ${dirLabel}.` : '';
   const prompt = `Business: ${context || 'not specified'}\n${ask}${styleLine}\n(Creativity seed: ${seed}; ignore this number.)\nFor "meaning", give a SHORT phrase (4-8 words), not a sentence.\nReply with ONLY a JSON array, no other text: [{"name":"...","meaning":"short phrase"}, ...]`;

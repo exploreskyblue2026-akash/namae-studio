@@ -47,9 +47,11 @@ function seed() {
     users: [{ id: 'u_admin', email, name: 'Admin', role: 'admin', active: true, salt, pwHash: hash(pw, salt), created: now() }],
     sessions: {}, projects: [], logs: [],
     config: {
-      keys: { gemini: '', euipo_client_id: '', euipo_client_secret: '', uspto: '', whoisxml: '', tavily: '' },
+      keys: { gemini: '', openrouter: '', euipo_client_id: '', euipo_client_secret: '', uspto: '', whoisxml: '', tavily: '' },
       sources: { rdap: true, euipo: false, uspto: false, whoisxml: false, llm: false, tavily: false },
-      llm: { model: 'gemini-3.5-flash-lite' },
+      // provider picks which text-generation API is used (image generation always uses the
+      // Gemini key directly, regardless of this). Switching provider/model needs no code change.
+      llm: { provider: 'gemini', model: 'gemini-3.5-flash-lite', openrouterModel: 'openai/gpt-4o-mini' },
       uiText: {}
     }
   };
@@ -69,21 +71,30 @@ function save() {
 
 // API keys: Render environment variables win over keys typed in Admin.
 // Env vars persist across restarts; keys saved in data.json do not on the free tier.
-const ENV_KEYS = { gemini: 'GEMINI_API_KEY', euipo_client_id: 'EUIPO_CLIENT_ID', euipo_client_secret: 'EUIPO_CLIENT_SECRET', uspto: 'USPTO_API_KEY', whoisxml: 'WHOISXML_API_KEY', tavily: 'TAVILY_API_KEY' };
+const ENV_KEYS = { gemini: 'GEMINI_API_KEY', openrouter: 'OPENROUTER_API_KEY', euipo_client_id: 'EUIPO_CLIENT_ID', euipo_client_secret: 'EUIPO_CLIENT_SECRET', uspto: 'USPTO_API_KEY', whoisxml: 'WHOISXML_API_KEY', tavily: 'TAVILY_API_KEY' };
 const SOURCE_KEYS = { llm: ['gemini'], euipo: ['euipo_client_id', 'euipo_client_secret'], uspto: ['uspto'], whoisxml: ['whoisxml'], tavily: ['tavily'] };
 function cfg() {
   const keys = { ...db.config.keys };
   for (const k of Object.keys(ENV_KEYS)) if (process.env[ENV_KEYS[k]]) keys[k] = process.env[ENV_KEYS[k]].trim();
   const sources = { ...db.config.sources };
   for (const [src, ks] of Object.entries(SOURCE_KEYS)) if (ks.every(k => keys[k])) sources[src] = true;
+  // Either provider's key is enough to flip text-generation on - SOURCE_KEYS above only checks
+  // the Gemini key since it predates OpenRouter support.
+  if (keys.openrouter) sources.llm = true;
   const llm = { ...db.config.llm };
+  if (process.env.LLM_PROVIDER) llm.provider = process.env.LLM_PROVIDER.trim();
   if (process.env.GEMINI_MODEL) llm.model = process.env.GEMINI_MODEL.trim();
+  if (process.env.OPENROUTER_MODEL) llm.openrouterModel = process.env.OPENROUTER_MODEL.trim();
   if (process.env.GEMINI_IMAGE_MODEL) llm.imageModel = process.env.GEMINI_IMAGE_MODEL.trim();
   else if (!llm.imageModel) llm.imageModel = 'gemini-2.5-flash-image';
   return { ...db.config, keys, sources, llm };
 }
 const uiText = () => ({ ...C.UI_DEFAULT, ...db.config.uiText });
-const llmReady = () => { const c = cfg(); return !!(c.sources.llm && c.keys.gemini); };
+const llmReady = () => {
+  const c = cfg();
+  if (!c.sources.llm) return false;
+  return c.llm.provider === 'openrouter' ? !!c.keys.openrouter : !!c.keys.gemini;
+};
 
 /* ---------- auth ---------- */
 function auth(req, res, next) {
@@ -181,16 +192,31 @@ function generateFor(p, dir, count) {
 // Primary path: ask the AI to invent names tailored to this project's actual brief and the
 // chosen direction's style. Only drops to the generic catalog pool when the AI isn't connected
 // or returns fewer than asked for.
+// Max names asked for in a single AI call. Asking for a big batch (e.g. 24) in one shot makes
+// the model collapse into permuting a handful of root words (Bricol/Bricola/Bricolo/Bricolae...)
+// instead of genuinely distinct ideas - several smaller independent calls, each with its own
+// random seed, give far more real variety for the same total count.
+const NAME_CHUNK = 4;
 async function generateMoreFor(p, dir, count) {
   const d = dirInfo(p, dir); if (!d) return 0;
   const context = p.restatement || p.brief || '';
   let got = 0;
   if (llmReady()) {
-    const avoid = p.names.map(x => x.n);
     const styleDesc = d.hint ? `${d.label} — ${d.hint}` : d.label;
-    const pairs = await llm.generateNames(cfg(), styleDesc, context, avoid, count);
-    pairs.forEach(([n, m]) => addName(p, dir, n, m));
-    got = pairs.length;
+    const chunks = [];
+    let remaining = count;
+    while (remaining > 0) { chunks.push(Math.min(NAME_CHUNK, remaining)); remaining -= NAME_CHUNK; }
+    const results = await Promise.all(chunks.map(c => llm.generateNames(cfg(), styleDesc, context, p.names.map(x => x.n), c)));
+    const seen = new Set(p.names.map(x => x.n.toLowerCase()));
+    for (const pairs of results) {
+      for (const [n, m] of pairs) {
+        const key = n.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        addName(p, dir, n, m);
+        got++;
+      }
+    }
   }
   const need = count - got;
   if (need > 0) got += generateFor(p, dir, need);
@@ -337,9 +363,21 @@ app.post('/api/projects/:id/names/:nid/variations', auth, async (req, res) => {
   const wantCount = kind === 'new' ? 3 : 4;
   let names = [];
   if (llmReady()) {
+    // One small call PER variation, run in parallel, instead of one call asking for all of
+    // them at once - a single batch call tends to produce the same root word with different
+    // suffixes (Joinjoi/Jointot/Jointmoi); independent calls give each variation its own idea.
     const context = p.restatement || p.brief || '';
-    const pairs = await llm.generateVariations(cfg(), n.n, n.m, kind, context, n.dirLabel);
-    names = pairs.map(([v]) => v);
+    const results = await Promise.all(Array.from({ length: wantCount }, () =>
+      llm.generateVariations(cfg(), n.n, n.m, kind, context, n.dirLabel, 1)));
+    const seen = new Set();
+    for (const pairs of results) {
+      for (const [v] of pairs) {
+        const key = v.toLowerCase();
+        if (seen.has(key) || key === n.n.toLowerCase()) continue;
+        seen.add(key);
+        names.push(v);
+      }
+    }
   }
   if (names.length < wantCount) {
     const fallback = kind === 'new' ? C.newElementVariants(n.n, wantCount) : C.similarVariants(n.n, wantCount);
@@ -370,15 +408,16 @@ app.post('/api/projects/:id/names/:nid/visualise', auth, async (req, res) => {
   // A strong, consistent base prompt is always built from the actual brand data (name, meaning,
   // direction, business) regardless of what the user types in the style box - that field only
   // adds an optional extra direction on top, so quality never depends on the user happening to
-  // write a good prompt themselves. Three distinct variation angles are requested so the 3
-  // outputs are genuinely different concepts rather than 3 near-identical renders of one idea.
-  const base = `Professional brand mark / logo concept for a brand named "${n.n}". Meaning behind the name: ${n.m}. Business: ${context || 'not specified'}. Brand direction/style: ${n.dirLabel || 'modern'}.` +
-    (style ? ` Additional direction from the brand owner: ${style}.` : ' Use a clean, premium, modern aesthetic appropriate to the business.') +
-    ' The image must be a single standalone logo/brand-mark concept on a plain or softly colored background: no mockup frame, no surrounding UI chrome, no extra text beyond the brand name if it appears in the mark itself.';
+  // write a good prompt themselves. These are WORDMARKS only (the name itself, stylized) - no
+  // separate pictorial icon/symbol - per request. A wide (not square) aspect is requested so the
+  // full word fits the wide preview tile without being cropped.
+  const base = `A WORDMARK logo for a brand named exactly "${n.n}" - the stylized typography of this word IS the entire logo. Do not add any separate icon, symbol, or pictorial mark next to it - just the word itself, artfully lettered. Meaning behind the name: ${n.m}. Business: ${context || 'not specified'}. Brand direction/style: ${n.dirLabel || 'modern'}.` +
+    (style ? ` Additional direction from the brand owner: ${style}.` : ' Use a clean, premium aesthetic appropriate to the business.') +
+    ' Wide, landscape-oriented composition with generous empty margin on all sides so the full word is never cropped. Plain or very softly colored background, no mockup frame, no surrounding UI chrome, no extra text beyond the brand name itself.';
   const variants = [
-    'Variation: a bold, simple icon-first mark that could stand alone without the wordmark.',
-    'Variation: a wordmark-led treatment (stylized typography) with a small icon accent.',
-    'Variation: an abstract symbol distinct in concept from the first two, same brand feel.'
+    'Typography style: bold, geometric sans-serif lettering.',
+    'Typography style: elegant serif or script lettering.',
+    'Typography style: modern minimalist lettering with unconventional letter-spacing or a distinctive letterform.'
   ];
   try {
     const results = await Promise.allSettled(variants.map(v => llm.generateImage(cfg(), `${base} ${v}`)));
@@ -450,6 +489,8 @@ app.put('/api/admin/config', auth, adminOnly, (req, res) => {
   (b.clear || []).forEach(k => { if (k in db.config.keys) db.config.keys[k] = ''; });
   Object.entries(b.sources || {}).forEach(([k, v]) => { if (k in db.config.sources) db.config.sources[k] = !!v; });
   if (b.llm && typeof b.llm.model === 'string' && b.llm.model.trim()) db.config.llm.model = b.llm.model.trim().slice(0, 80);
+  if (b.llm && typeof b.llm.openrouterModel === 'string' && b.llm.openrouterModel.trim()) db.config.llm.openrouterModel = b.llm.openrouterModel.trim().slice(0, 80);
+  if (b.llm && ['gemini', 'openrouter'].includes(b.llm.provider)) db.config.llm.provider = b.llm.provider;
   save(); res.json(configView());
 });
 

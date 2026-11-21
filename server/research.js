@@ -121,6 +121,55 @@ async function uspto(name) {
   }
 }
 
+// ---------- Trademark (India): web-search based, clearly labeled as such ----------
+// India's own trademark registry (tmrsearch.ipindia.gov.in) requires logging in with an OTP sent
+// to a real email/mobile PLUS a captcha before a single search can even be run - confirmed by
+// opening the live site directly. That's not automatable for free the way USPTO's own backend
+// is, so this is a live Tavily web search read by the AI instead, honestly labeled as web-search
+// evidence rather than an official registry check, and shown first since the user's market is
+// India-first while still covering the US (the one official source actually available).
+async function indiaTrademarkSearch(cfg, llm, name) {
+  const key = cfg.keys.tavily;
+  if (!key) return null;
+  try {
+    const r = await fetch('https://api.tavily.com/search', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ api_key: key, query: `"${name}" trademark India registered OR "trade mark" India`, search_depth: 'basic', max_results: 5, include_raw_content: false }),
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!r.ok) return { items: [`India web search returned ${r.status}.`], status: 'Pending' };
+    const data = await r.json();
+    const hits = (data.results || []).filter(x => x.title && x.url);
+    if (!hits.length) return { items: [`No India trademark mentions found for "${name}" in web search.`], status: 'Clear' };
+    if (cfg.sources.llm && (cfg.llm.provider === 'openrouter' ? cfg.keys.openrouter : cfg.keys.gemini)) {
+      try {
+        const { matches } = await llm.extractBrandMatches(cfg, name, hits);
+        const indiaMatches = matches.filter(m => !m.country || /india/i.test(m.country));
+        if (indiaMatches.length) return { items: indiaMatches.map(m => `${m.name}${m.category ? ' — ' + m.category : ''}`), status: 'Review' };
+        return { items: [`No clear India trademark match found for "${name}" in web search.`], status: 'Clear' };
+      } catch (e) { /* fall through to raw listing */ }
+    }
+    return { items: hits.slice(0, 2).map(h => `${h.title} — ${h.url}`), status: 'Review' };
+  } catch (e) {
+    return { items: ['India web search failed: ' + e.message], status: 'Pending' };
+  }
+}
+// Merges the India (web-search) and US (official USPTO) trademark checks into one card, India
+// first. Simple to scan: a flag per line, nothing fancier.
+async function trademarkCheck(cfg, llm, name) {
+  const [us, india] = await Promise.all([uspto(name), indiaTrademarkSearch(cfg, llm, name)]);
+  const items = [];
+  if (india) items.push(...india.items.map(i => `🇮🇳 ${i}`));
+  else items.push('🇮🇳 Add a Tavily key in Admin to include an India check here.');
+  items.push(...us.items.map(i => `🇺🇸 ${i}`));
+  const status = (india && india.status === 'Review') || us.status === 'Review' ? 'Review'
+    : (us.status === 'Pending' && (!india || india.status === 'Pending')) ? 'Pending' : 'Clear';
+  const notes = [];
+  if (india) notes.push("India: web search (IP India's own registry requires OTP login, so it can't be automated).");
+  if (us.note) notes.push(us.note);
+  return { id: 'trademark', label: LABEL.trademark, status, items, note: notes.join(' ') || undefined, source: india ? 'USPTO + Web search (India)' : 'USPTO' };
+}
+
 // ---------- Social: best-effort profile-URL probe (no official API exists anywhere for this) ----------
 const SOCIAL_PLATFORMS = [
   { label: 'Instagram', url: h => `https://www.instagram.com/${h}/` },
@@ -171,7 +220,7 @@ async function tavilySimilar(cfg, llm, name) {
     if (!hits.length) {
       return { id: 'similar', label: LABEL.similar, status: 'Clear', items: [`No existing brand, product, or company found online matching "${name}".`], source: 'Web search' };
     }
-    if (cfg.sources.llm && cfg.keys.gemini) {
+    if (cfg.sources.llm && (cfg.llm.provider === 'openrouter' ? cfg.keys.openrouter : cfg.keys.gemini)) {
       try {
         const { matches } = await llm.extractBrandMatches(cfg, name, hits);
         if (matches.length) {
@@ -195,7 +244,7 @@ async function tavilySimilar(cfg, llm, name) {
 // ---------- AI-only checks (sound/origin always; domain/trademark/social/similar as fallback) ----------
 async function aiCheck(cfg, llm, id, fn, name, context) {
   if (!cfg.sources.llm) return pending(id, 'AI check is off in Admin.', 'AI');
-  if (!cfg.keys.gemini) return pending(id, 'Not connected. Add the AI key in Admin.', 'AI');
+  if (!(cfg.llm.provider === 'openrouter' ? cfg.keys.openrouter : cfg.keys.gemini)) return pending(id, 'Not connected. Add the AI key in Admin.', 'AI');
   try {
     const { status, bullets } = await fn(cfg, name, context || 'No business context given.');
     return { id, label: LABEL[id], status, items: bullets, source: 'AI' };
@@ -223,10 +272,13 @@ async function liveOrFallback(id, live, aiReady, aiFn) {
 
 async function run(name, cfg, llm, context) {
   const ctx = context || 'No business context given.';
-  const aiReady = !!(cfg.sources.llm && cfg.keys.gemini);
+  // Text-generation readiness follows whichever provider is selected in Admin (Gemini or
+  // OpenRouter) - checking only the Gemini key here would wrongly report "AI not ready" for
+  // every research call once someone switches providers and only holds an OpenRouter key.
+  const aiReady = !!(cfg.sources.llm && (cfg.llm.provider === 'openrouter' ? cfg.keys.openrouter : cfg.keys.gemini));
   const [liveDomain, liveTrademark, liveSocial, liveSimilar, sound, origin] = await Promise.all([
     cfg.sources.rdap ? rdap(name) : null,
-    uspto(name),
+    trademarkCheck(cfg, llm, name),
     socialProbe(name),
     tavilySimilar(cfg, llm, name),
     aiCheck(cfg, llm, 'sound', llm.checkSound, name, context),
